@@ -42,10 +42,12 @@
         <p>発行済みのログイン番号で、メモを共有できます。</p>
         <button id="sharingLoginButton" class="toolbar-button" type="button">ログイン</button>
       </div>
-      <div id="noteList" class="note-list"></div>
-      <button id="addNote" class="add-button" type="button" aria-label="入力欄を追加" title="入力欄を追加">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
-      </button>
+      <div class="notes-scroll">
+        <div id="noteList" class="note-list"></div>
+        <button id="addNote" class="add-button" type="button" aria-label="入力欄を追加" title="入力欄を追加">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
     </section>
   </main>
   <dialog id="loginDialog" class="login-dialog" aria-labelledby="loginTitle">

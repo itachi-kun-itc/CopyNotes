@@ -6,9 +6,12 @@
   -webkit-font-smoothing: antialiased;
 }
 * { box-sizing: border-box; -webkit-user-select: none; user-select: none; }
-html { touch-action: pan-x pan-y; }
+html { height: 100%; overflow: hidden; overscroll-behavior: none; touch-action: pan-x pan-y; }
 input, textarea { -webkit-user-select: text; user-select: text; }
-body { display: flow-root; position: relative; isolation: isolate; margin: 0; min-width: 280px; min-height: 100svh; }
+body {
+  position: fixed; inset: 0; isolation: isolate; margin: 0; min-width: 280px;
+  height: 100vh; height: 100dvh; overflow: hidden; overscroll-behavior: none;
+}
 body::before {
   content: ""; position: fixed; z-index: -1; inset: 0; pointer-events: none;
   background: radial-gradient(ellipse 480px 300px at calc(50% - 190px) -60px, #d6e8ed70, transparent),
@@ -16,8 +19,19 @@ body::before {
 }
 button, textarea { font: inherit; }
 button { -webkit-tap-highlight-color: transparent; }
-.notes { width: min(100% - 40px, 640px); margin: 32px auto 64px; }
-.toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.notes {
+  display: flex; flex-direction: column; width: min(100% - 40px, 640px);
+  height: 100%; min-height: 0; margin: 0 auto;
+  padding-top: max(32px, env(safe-area-inset-top));
+}
+.toolbar { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+#notesPanel { display: flex; flex: 1; flex-direction: column; min-height: 0; }
+#notesPanel > .sync-status, #notesPanel > .sharing-login { flex-shrink: 0; }
+.notes-scroll {
+  flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto;
+  overscroll-behavior: none; scroll-padding-block: 8px;
+  margin-inline: -4px; padding: 4px 4px max(64px, env(safe-area-inset-bottom));
+}
 .toolbar-actions { display: flex; gap: 8px; }
 .toolbar-button, .account-button, .login-submit {
   position: relative; isolation: isolate;
@@ -57,7 +71,7 @@ button { -webkit-tap-highlight-color: transparent; }
 }
 .account-button { white-space: nowrap; }
 .workspace-tabs {
-  position: relative; isolation: isolate; display: flex; gap: 4px;
+  position: relative; isolation: isolate; display: flex; flex-shrink: 0; gap: 4px;
   margin-bottom: 22px; padding: 5px; border: 1px solid #ffffffbd; border-radius: 999px;
   background: linear-gradient(160deg, #ffffff75, #e1eae44d);
   box-shadow: 0 7px 24px #314d520c, inset 0 1px 0 #ffffffe6, inset 0 -1px 0 #ffffff4d;
@@ -305,7 +319,7 @@ button:active:not(:disabled) { background: #e8ece5; }
 .note-menu button:hover, .note-menu button:focus-visible { background: #fbefef; }
 .note-menu button:focus-visible { outline-offset: -2px; }
 @media (max-width: 480px) {
-  .notes { width: calc(100% - 32px); margin-top: 20px; }
+  .notes { width: calc(100% - 32px); padding-top: max(20px, env(safe-area-inset-top)); }
   .toolbar { gap: 6px; }
   .toolbar-button { padding-inline: 10px; }
   .account-button { padding-inline: 6px; }
