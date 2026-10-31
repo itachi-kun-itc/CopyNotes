@@ -19,13 +19,14 @@ globalThis.CopyNotesSharing = (() => {
     const result = [];
     let copies = 0;
     let deletions = 0;
+    const preserved = [];
     for (const note of local) {
       const latest = remote.get(note.id);
       remote.delete(note.id);
       if (!note.dirty) { if (latest) result.push(clean(latest)); continue; }
       if (!latest) {
         if (note.version === 0) result.push(note);
-        else if (!note.deleted) { result.push(draft(note.text)); copies++; }
+        else if (!note.deleted) { const copy = draft(note.text); result.push(copy); preserved.push([note.id, copy.id]); copies++; }
         continue;
       }
       if (latest.mutationId === note.mutationId || latest.deleted && note.deleted) {
@@ -38,12 +39,12 @@ globalThis.CopyNotesSharing = (() => {
         result.push(note);
       } else {
         result.push(clean(latest));
-        if (!note.deleted) { result.push(draft(note.text)); copies++; }
+        if (!note.deleted) { const copy = draft(note.text); result.push(copy); preserved.push([note.id, copy.id]); copies++; }
         else deletions++;
       }
     }
     for (const note of remote.values()) result.push(clean(note));
-    return { notes: sort(result), copies, deletions };
+    return { notes: sort(result), copies, deletions, preserved };
   }
   function update(note, text, forceDirty = false) {
     if (note.text === text) return;

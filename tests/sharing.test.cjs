@@ -6,6 +6,17 @@ const sharing = globalThis.CopyNotesSharing;
 const remote = (id, text, version = 1, order = 1, mutationId = crypto.randomUUID()) => ({ id, text, version, order, position: 0, syncedAt: 1, deleted: false, mutationId });
 const cache = note => sharing.merge([], [note]).notes[0];
 
+test("conflicts identify the preserved draft so the active input can retain focus and selection", () => {
+  const original = remote("focused", "initial");
+  const local = cache(original);
+  sharing.update(local, "still typing locally");
+  const result = sharing.merge([local], [remote("focused", "other session", 2, 2)]);
+  const draft = result.notes.find(note => note.version === 0);
+  assert.deepEqual(result.preserved, [[original.id, draft.id]]);
+  assert.equal(draft.text, "still typing locally");
+  assert.equal(result.notes.find(note => note.id === original.id).text, "other session");
+});
+
 test("refresh preserves unsynced edits and merges other devices' new notes", () => {
   const a = remote("a", "initial"); const local = cache(a); sharing.update(local, "local draft");
   const merged = sharing.merge([local], [a, remote("b", "another device", 1, 2)]);

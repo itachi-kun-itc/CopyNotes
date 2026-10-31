@@ -29,7 +29,7 @@ button { -webkit-tap-highlight-color: transparent; }
 #notesPanel > .sync-status, #notesPanel > .sharing-login { flex-shrink: 0; }
 .notes-scroll {
   flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto;
-  overscroll-behavior: none; scroll-padding-block: 8px;
+  overscroll-behavior: none; scroll-padding-block: 8px; overflow-anchor: none;
   margin-inline: -4px; padding: 4px 4px max(64px, env(safe-area-inset-bottom));
 }
 .toolbar-actions { display: flex; gap: 8px; }
@@ -143,9 +143,12 @@ button { -webkit-tap-highlight-color: transparent; }
   .toolbar-button, .account-button, .login-submit, .workspace-tabs, .workspace-tab { background: Canvas; color: CanvasText; border: 1px solid ButtonText; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
   .workspace-tab[aria-selected="true"] { outline: 2px solid Highlight; outline-offset: -3px; }
 }
-.note-list { display: grid; gap: 12px; }
+.note-list { display: flex; flex-direction: column; gap: 12px; }
 .note-row {
   display: flex;
+  min-height: 0;
+  touch-action: pan-y;
+  flex-shrink: 0;
   align-items: center;
   gap: 12px;
   padding: 12px 14px 12px 20px;
@@ -153,8 +156,12 @@ button { -webkit-tap-highlight-color: transparent; }
   border: 1px solid #e5e6e2;
   border-radius: 14px;
   box-shadow: 0 2px 5px #252b2503;
-  transition: border-color 150ms, box-shadow 150ms;
+  transition: transform 220ms cubic-bezier(.2,.8,.2,1), opacity 220ms, border-color 150ms, box-shadow 150ms;
 }
+.note-row.is-swiping { transition: none; will-change: transform, opacity; }
+.note-row.is-swipe-ready { border-color: #bf4444; }
+.note-row.is-removing { overflow: hidden; pointer-events: none; will-change: height, transform, opacity; }
+.is-swiping .note-link { pointer-events: none; }
 .note-row:focus-within { border-color: #a3aaa0; box-shadow: 0 0 0 3px #616f6110; }
 .note-row, .note-input { -webkit-touch-callout: none; }
 .note-row[data-menu-open] { border-color: #a3aaa0; }

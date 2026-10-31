@@ -7,7 +7,7 @@
     "dev": "node server.cjs",
     "start": "node server.cjs",
     "test": "node --test tests/*.test.cjs",
-    "check": "node --check app.js && node --check app-config.js && node --check syntax.js && node --check links.js && node --check code-editor.js && node --check sharing.js && node --check server.cjs && node --check lib/cloud-api.mjs && node --check lib/sqlite-adapter.cjs && node --check lib/login-admin.cjs && node --check scripts/manage-logins.cjs && node --check scripts/build.cjs",
+    "check": "node --check app.js && node --check app-config.js && node --check syntax.js && node --check links.js && node --check code-editor.js && node --check sharing.js && node --check auto-sync.js && node --check touch-notes.js && node --check server.cjs && node --check lib/cloud-api.mjs && node --check lib/sqlite-adapter.cjs && node --check lib/login-admin.cjs && node --check scripts/manage-logins.cjs && node --check scripts/build.cjs",
     "build": "node scripts/build.cjs",
     "build:pages": "node scripts/build.cjs --github-pages",
     "cloud:dev": "npm run build && npx --yes wrangler@4.156.0 pages dev dist",

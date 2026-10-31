@@ -47,11 +47,6 @@
   let storageWarningShown = false;
   let menuRow = null;
   let menuPoint = { x: 0, y: 0 };
-  let press = null;
-  let pressTimer;
-  let touchContextUntil = 0;
-  let touchClickRow = null;
-  let touchClickUntil = 0;
   const sharing = CopyNotesSharing;
   const apiBase = (globalThis.CopyNotesConfig?.apiBase || '').replace(/\/$/, '');
   const crossOriginApi = Boolean(apiBase && new URL(apiBase).origin !== location.origin);
@@ -80,6 +75,41 @@
   let busy = true;
   let cloudMessage = '';
   const inFlightIds = new Set();
+  const composingInputs = new Set();
+  const idleWaiters = new Set();
+  let removingCount = 0;
+  let backgroundSync = false;
+  const touch = CopyNotesTouch.attach(list, {
+    onDelete: (row, swipe) => deleteNote(row, swipe), onIdle: releaseIdle,
+    blocked: () => removingCount > 0,
+    selectionActive: row => {
+      const input = row.querySelector('textarea');
+      return composingInputs.has(input) || document.activeElement === input && input.selectionStart !== input.selectionEnd;
+    },
+  });
+  const autoSync = CopyNotesAutoSync.create({
+    run: () => cloudAction(true, false, true),
+    enabled: () => authenticated && document.visibilityState !== 'hidden' && navigator.onLine !== false
+      && (activeTab === 'shared' || pendingOperations().length > 0),
+    ready: () => !busy && !interactionActive(),
+    hasChanges: () => pendingOperations().length > 0,
+  });
+
+  function pendingOperations() {
+    return sharing.operations(sharedNotes.filter(note => note.version || note.deleted || note.pendingMutationId || !sharing.isBlank(note.text))).slice(0, 200);
+  }
+  function interactionActive() { return composingInputs.size > 0 || touch.active || removingCount > 0; }
+  function releaseIdle() {
+    // compositionend can precede the final input event; merge after both.
+    setTimeout(() => {
+      if (interactionActive()) return;
+      for (const resolve of idleWaiters) resolve();
+      idleWaiters.clear();
+    }, 0);
+  }
+  function waitForIdle() {
+    return interactionActive() ? new Promise(resolve => idleWaiters.add(resolve)) : Promise.resolve();
+  }
 
   function announce(message) {
     clearTimeout(statusTimer);
@@ -133,11 +163,11 @@
 
   function saveNotes() {
     if (activeTab === 'device') {
-      deviceNotes = Array.from(list.querySelectorAll('textarea'), input => input.value);
+      deviceNotes = Array.from(list.querySelectorAll('.note-row:not(.is-removing) textarea'), input => input.value);
       try { localStorage.setItem(storageKey, JSON.stringify(deviceNotes)); }
       catch { storageWarning(); }
     } else if (authenticated) {
-      const visible = new Map(Array.from(list.children, row => [row.dataset.noteId, row.querySelector('textarea').value]));
+      const visible = new Map(Array.from(list.children).filter(row => !row.classList.contains('is-removing')).map(row => [row.dataset.noteId, row.querySelector('textarea').value]));
       sharedNotes = sharedNotes.filter(note => {
         if (visible.has(note.id)) sharing.update(note, visible.get(note.id), inFlightIds.has(note.id) || Boolean(note.pendingMutationId));
         else if (!note.deleted) {
@@ -199,23 +229,57 @@
     positionAccountMenu();
     sharingLogin.hidden = !shared || authenticated;
     syncStatus.hidden = !shared;
-    const pending = sharedNotes.filter(note => note.dirty).length;
-    syncStatus.textContent = cloudMessage || (busy ? '接続中…' : !authenticated ? '5桁の番号でログインして共有' : pending ? '未同期の変更 ' + pending + '件' : '同期済み · 同期した順に表示');
+    const pending = pendingOperations().length;
+    syncStatus.textContent = cloudMessage || (busy && !backgroundSync ? '接続中…' : !authenticated ? '5桁の番号でログインして共有' : pending ? '自動同期待ち ' + pending + '件' : '自動同期 · 同期した順に表示');
   }
 
-  function renderNotes(restoreFocus = false) {
+  function renderNotes(restoreFocus = false, preserved = []) {
     const focused = restoreFocus && document.activeElement?.matches('textarea') && list.contains(document.activeElement) ? document.activeElement : null;
+    for (const [previousId, nextId] of preserved) {
+      const row = Array.from(list.children).find(item => item.dataset.noteId === previousId);
+      if (row) row.dataset.noteId = nextId;
+    }
     const focusId = focused?.closest('.note-row')?.dataset.noteId;
-    const selection = focused ? [focused.selectionStart, focused.selectionEnd] : null;
+    const selection = focused ? [focused.selectionStart, focused.selectionEnd, focused.selectionDirection] : null;
+    const focusedTop = focused?.getBoundingClientRect().top;
+    const scroller = document.querySelector('.notes-scroll');
+    const scrollTop = scroller.scrollTop;
     cancelPress(); closeMenu();
-    list.replaceChildren();
-    if (activeTab === 'device') deviceNotes.forEach(value => addNote(value));
-    else if (authenticated) sharedNotes.filter(note => !note.deleted).forEach(note => addNote(note.text, false, note));
+    if (restoreFocus && activeTab === 'shared' && authenticated) {
+      const existing = new Map(Array.from(list.children, row => [row.dataset.noteId, row]));
+      sharedNotes.filter(note => !note.deleted).forEach((note, index) => {
+        let row = existing.get(note.id);
+        existing.delete(note.id);
+        if (!row) row = addNote(note.text, false, note);
+        const input = row.querySelector('textarea');
+        if (input.value !== note.text) {
+          input.value = note.text;
+          row.querySelector('.copy-button').disabled = note.text.length === 0;
+          row.querySelector('.copy-button').removeAttribute('data-copied');
+          highlight(input); resize(input);
+        }
+        if (list.children[index] !== row) list.insertBefore(row, list.children[index] || null);
+      });
+      existing.forEach(row => row.remove());
+      labelNotes();
+    } else {
+      for (const row of list.children) row.getAnimations?.().forEach(animation => animation.cancel());
+      list.replaceChildren();
+      if (activeTab === 'device') deviceNotes.forEach(value => addNote(value));
+      else if (authenticated) sharedNotes.filter(note => !note.deleted).forEach(note => addNote(note.text, false, note));
+    }
     updateWorkspace();
     if (focusId) {
       const row = Array.from(list.children).find(row => row.dataset.noteId === focusId);
       const input = row?.querySelector('textarea');
-      if (input) { input.focus({ preventScroll: true }); input.setSelectionRange(...selection); }
+      if (input) {
+        if (document.activeElement !== input) input.focus({ preventScroll: true });
+        input.setSelectionRange(...selection);
+      }
+    }
+    if (restoreFocus) {
+      scroller.scrollTop = scrollTop;
+      if (focused?.isConnected) scroller.scrollTop += focused.getBoundingClientRect().top - focusedTop;
     }
   }
 
@@ -224,6 +288,7 @@
     saveNotes();
     activeTab = tab;
     renderNotes();
+    autoSync.refresh();
   }
 
   function openLogin() {
@@ -273,12 +338,12 @@
     } finally { clearTimeout(timer); }
   }
 
-  async function cloudAction(synchronize, compactRemoteBlanks = false) {
+  async function cloudAction(synchronize, compactRemoteBlanks = false, automatic = false) {
     if (busy) return;
     if (!authenticated) return;
     saveNotes();
     const expectedRoom = roomId;
-    const sent = synchronize ? sharing.operations(sharedNotes) : [];
+    const sent = synchronize ? pendingOperations() : [];
     sent.forEach(note => inFlightIds.add(note.id));
     if (sent.length) {
       const byId = new Map(sharedNotes.map(note => [note.id, note]));
@@ -286,11 +351,13 @@
       persistShared();
     }
     busy = true;
-    cloudMessage = synchronize ? '同期中…' : '更新中…';
+    backgroundSync = automatic;
+    if (!automatic) cloudMessage = synchronize ? '同期中…' : '更新中…';
     updateWorkspace();
     try {
       const data = sent.length ? await request('notes', 'POST', { requestId: crypto.randomUUID(), operations: sent }) : await request('notes');
-      if (roomId !== expectedRoom) return;
+      await waitForIdle();
+      if (roomId !== expectedRoom || !authenticated) return false;
       const merged = sharing.merge(sharedNotes, data.notes, sent);
       sharedNotes = merged.notes;
       if (compactRemoteBlanks) {
@@ -300,8 +367,9 @@
       persistShared();
       cloudMessage = merged.copies ? '同時編集した内容を、未同期の別メモとして残しました'
         : merged.deletions ? '他端末で更新されたメモの削除は見送りました' : '';
-      if (activeTab === 'shared') renderNotes(true);
-      announce(cloudMessage || (synchronize ? '同期しました' : '共有内容を更新しました'));
+      if (activeTab === 'shared') renderNotes(true, merged.preserved);
+      if (!automatic || cloudMessage) announce(cloudMessage || (synchronize ? '同期しました' : '共有内容を更新しました'));
+      return true;
     } catch (error) {
       cloudMessage = error.message;
       if (error.status === 401) {
@@ -309,8 +377,10 @@
         if (activeTab === 'shared') renderNotes();
       }
       announce(error.message);
+      return false;
     } finally {
-      inFlightIds.clear(); busy = false; updateWorkspace();
+      inFlightIds.clear(); busy = false; backgroundSync = false; updateWorkspace();
+      if (!automatic) autoSync.changed();
     }
   }
 
@@ -384,8 +454,7 @@
   }
 
   function cancelPress() {
-    clearTimeout(pressTimer);
-    press = null;
+    touch.cancel();
   }
 
   function closeMenu(restoreFocus = false) {
@@ -426,25 +495,33 @@
     });
   }
 
-  deleteButton.addEventListener("click", () => {
-    const row = menuRow;
-    if (!row?.isConnected) return;
+  async function deleteNote(row, swipe = false, restoreFocus = false) {
+    if (!row?.isConnected || removingCount > 0 || row.classList.contains('is-removing')) return;
+    const expectedTab = activeTab;
     const next = row.nextElementSibling || row.previousElementSibling;
-    cancelPress();
+    row.classList.add('is-removing');
+    removingCount++;
     closeMenu();
-    row.remove();
-    labelNotes();
     saveNotes();
-    (next?.querySelector("textarea") || addButton).focus({ preventScroll: true });
-    announce("削除しました");
-  });
+    autoSync.changed();
+    try { await CopyNotesTouch.remove(row, swipe); }
+    finally {
+      removingCount--;
+      releaseIdle();
+      if (activeTab === expectedTab) {
+        labelNotes();
+        if (restoreFocus) (next?.isConnected ? next.querySelector('textarea') : addButton).focus({ preventScroll: true });
+      }
+      announce('削除しました');
+    }
+  }
+  deleteButton.addEventListener('click', () => deleteNote(menuRow, false, true));
 
   list.addEventListener("contextmenu", event => {
     const row = event.target.closest(".note-row");
     if (!row) return;
     event.preventDefault();
-    // Native touch menus can fire before the requested three-second delay.
-    if (event.pointerType === "touch" || Date.now() < touchContextUntil) return;
+    if (event.pointerType === "touch" || touch.recentTouch) return;
     const rect = row.getBoundingClientRect();
     openMenu(row, event.clientX || rect.left + 16, event.clientY || rect.bottom + 4);
   });
@@ -457,45 +534,6 @@
     const rect = row.getBoundingClientRect();
     openMenu(row, rect.left + 16, rect.bottom + 4);
   });
-
-  list.addEventListener("touchstart", event => {
-    cancelPress();
-    touchContextUntil = Date.now() + 10000;
-    const row = event.target.closest(".note-row");
-    if (!row || event.touches.length !== 1) return;
-    const touch = event.touches[0];
-    press = { row, id: touch.identifier, x: touch.clientX, y: touch.clientY };
-    pressTimer = setTimeout(() => {
-      if (!press || !row.isConnected) return;
-      const { x, y } = press;
-      cancelPress();
-      touchClickRow = row;
-      touchClickUntil = Infinity;
-      openMenu(row, x, y);
-    }, 3000);
-  }, { passive: true });
-
-  document.addEventListener("touchstart", event => {
-    if (event.touches.length > 1) cancelPress();
-  }, { passive: true });
-  document.addEventListener("touchmove", event => {
-    if (!press) return;
-    const touch = Array.from(event.touches).find(touch => touch.identifier === press.id);
-    if (!touch || Math.hypot(touch.clientX - press.x, touch.clientY - press.y) > 10) cancelPress();
-  }, { passive: true });
-  for (const type of ["touchend", "touchcancel"]) {
-    document.addEventListener(type, () => {
-      cancelPress();
-      touchContextUntil = Date.now() + 800;
-      touchClickUntil = Date.now() + 800;
-    }, { passive: true });
-  }
-  list.addEventListener("click", event => {
-    if (Date.now() < touchClickUntil && touchClickRow?.contains(event.target)) {
-      event.preventDefault();
-      event.stopImmediatePropagation();
-    }
-  }, true);
 
   document.addEventListener("pointerdown", event => {
     if (!menu.hidden && !menu.contains(event.target)) closeMenu();
@@ -589,6 +627,7 @@
       highlight(input);
       resize(input);
       saveNotes();
+      autoSync.changed();
     });
     button.addEventListener("click", async () => {
       const text = input.value;
@@ -616,6 +655,7 @@
     highlight(input);
     resize(input);
     if (focus) input.focus();
+    return row;
   }
 
   renderNotes();
@@ -624,9 +664,25 @@
     if (activeTab === 'shared' && !authenticated) return;
     addNote("", true);
     saveNotes();
+    autoSync.changed();
   });
   window.addEventListener("resize", () => list.querySelectorAll("textarea").forEach(resize));
-  window.addEventListener('pagehide', compactNotes);
-  window.addEventListener('pageshow', event => { if (event.persisted) compactNotes(); });
-  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') compactNotes(); });
+  list.addEventListener('compositionstart', event => composingInputs.add(event.target));
+  list.addEventListener('compositionend', event => {
+    setTimeout(() => {
+      composingInputs.delete(event.target);
+      releaseIdle(); autoSync.changed();
+    }, 0);
+  });
+  list.addEventListener('focusout', event => { composingInputs.delete(event.target); releaseIdle(); });
+  window.addEventListener('pagehide', () => { compactNotes(); autoSync.pause(); });
+  window.addEventListener('pageshow', event => { if (event.persisted) compactNotes(); autoSync.refresh(); });
+  window.addEventListener('online', () => autoSync.refresh());
+  window.addEventListener('offline', () => autoSync.pause());
+  window.addEventListener('focus', () => autoSync.refresh());
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') {
+      compactNotes(); composingInputs.clear(); releaseIdle(); autoSync.pause();
+    } else autoSync.refresh();
+  });
 })();
