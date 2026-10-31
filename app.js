@@ -43,6 +43,15 @@
   const menu = document.querySelector("#noteMenu");
   const deleteButton = document.querySelector("#deleteNote");
   const addButton = document.querySelector("#addNote");
+  const notesScroller = document.querySelector('.notes-scroll');
+  let resizeFrame = null;
+
+  // The toolbar and tabs must never forward wheel/touch scrolling to the page.
+  for (const type of ['wheel', 'touchmove']) {
+    document.querySelector('.notes').addEventListener(type, event => {
+      if (!event.target.closest?.('.notes-scroll')) event.preventDefault();
+    }, { passive: false });
+  }
   let statusTimer;
   let storageWarningShown = false;
   let menuRow = null;
@@ -250,7 +259,7 @@
       sharedNotes.filter(note => !note.deleted).forEach((note, index) => {
         let row = existing.get(note.id);
         existing.delete(note.id);
-        if (!row) row = addNote(note.text, false, note);
+        if (!row) row = addNote(note.text, note);
         const input = row.querySelector('textarea');
         if (input.value !== note.text) {
           input.value = note.text;
@@ -266,7 +275,7 @@
       for (const row of list.children) row.getAnimations?.().forEach(animation => animation.cancel());
       list.replaceChildren();
       if (activeTab === 'device') deviceNotes.forEach(value => addNote(value));
-      else if (authenticated) sharedNotes.filter(note => !note.deleted).forEach(note => addNote(note.text, false, note));
+      else if (authenticated) sharedNotes.filter(note => !note.deleted).forEach(note => addNote(note.text, note));
     }
     updateWorkspace();
     if (focusId) {
@@ -281,6 +290,7 @@
       scroller.scrollTop = scrollTop;
       if (focused?.isConnected) scroller.scrollTop += focused.getBoundingClientRect().top - focusedTop;
     }
+    scheduleResizeNotes();
   }
 
   function setTab(tab) {
@@ -449,8 +459,22 @@
   });
 
   function resize(input) {
+    if (!input.isConnected || !input.getClientRects().length || input.closest('.is-removing')) return;
+    const previousHeight = input.style.height;
     input.style.height = "auto";
-    input.style.height = `${input.scrollHeight}px`;
+    const height = input.scrollHeight;
+    input.style.height = height > 0 ? `${Math.ceil(height) + 1}px` : previousHeight;
+    input.scrollTop = 0;
+  }
+
+  function scheduleResizeNotes() {
+    if (resizeFrame !== null) return;
+    resizeFrame = requestAnimationFrame(() => {
+      resizeFrame = null;
+      const scrollTop = notesScroller.scrollTop;
+      list.querySelectorAll('textarea').forEach(resize);
+      notesScroller.scrollTop = scrollTop;
+    });
   }
 
   function cancelPress() {
@@ -601,7 +625,7 @@
     if (!copied) throw new Error("Copy unavailable");
   }
 
-  function addNote(value = "", focus = false, model = null) {
+  function addNote(value = "", model = null) {
     const row = template.content.firstElementChild.cloneNode(true);
     const input = row.querySelector("textarea");
     const button = row.querySelector(".copy-button");
@@ -654,7 +678,7 @@
     list.append(row);
     highlight(input);
     resize(input);
-    if (focus) input.focus();
+    scheduleResizeNotes();
     return row;
   }
 
@@ -662,11 +686,24 @@
   bootstrap();
   addButton.addEventListener("click", () => {
     if (activeTab === 'shared' && !authenticated) return;
-    addNote("", true);
+    addNote("");
     saveNotes();
     autoSync.changed();
   });
-  window.addEventListener("resize", () => list.querySelectorAll("textarea").forEach(resize));
+  window.addEventListener('resize', scheduleResizeNotes);
+  window.visualViewport?.addEventListener('resize', scheduleResizeNotes);
+  window.addEventListener('load', scheduleResizeNotes);
+  document.fonts?.ready.then(scheduleResizeNotes);
+  if (globalThis.ResizeObserver) {
+    let measuredWidth = -1;
+    new ResizeObserver(entries => {
+      const width = entries[0]?.contentRect.width;
+      if (width > 0 && width !== measuredWidth) {
+        measuredWidth = width;
+        scheduleResizeNotes();
+      }
+    }).observe(list);
+  }
   list.addEventListener('compositionstart', event => composingInputs.add(event.target));
   list.addEventListener('compositionend', event => {
     setTimeout(() => {
@@ -676,13 +713,13 @@
   });
   list.addEventListener('focusout', event => { composingInputs.delete(event.target); releaseIdle(); });
   window.addEventListener('pagehide', () => { compactNotes(); autoSync.pause(); });
-  window.addEventListener('pageshow', event => { if (event.persisted) compactNotes(); autoSync.refresh(); });
+  window.addEventListener('pageshow', event => { if (event.persisted) compactNotes(); scheduleResizeNotes(); autoSync.refresh(); });
   window.addEventListener('online', () => autoSync.refresh());
   window.addEventListener('offline', () => autoSync.pause());
   window.addEventListener('focus', () => autoSync.refresh());
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
       compactNotes(); composingInputs.clear(); releaseIdle(); autoSync.pause();
-    } else autoSync.refresh();
+    } else { scheduleResizeNotes(); autoSync.refresh(); }
   });
 })();

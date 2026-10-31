@@ -6,11 +6,11 @@
   -webkit-font-smoothing: antialiased;
 }
 * { box-sizing: border-box; -webkit-user-select: none; user-select: none; }
-html { height: 100%; overflow: hidden; overscroll-behavior: none; touch-action: pan-x pan-y; }
+html { height: 100%; overflow: hidden; overflow: clip; overscroll-behavior: none; touch-action: pan-x pan-y; }
 input, textarea { -webkit-user-select: text; user-select: text; }
 body {
   position: fixed; inset: 0; isolation: isolate; margin: 0; min-width: 280px;
-  height: 100vh; height: 100dvh; overflow: hidden; overscroll-behavior: none;
+  height: 100vh; height: 100dvh; overflow: hidden; overflow: clip; overscroll-behavior: none;
 }
 body::before {
   content: ""; position: fixed; z-index: -1; inset: 0; pointer-events: none;
@@ -27,9 +27,11 @@ button { -webkit-tap-highlight-color: transparent; }
 .toolbar { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
 #notesPanel { display: flex; flex: 1; flex-direction: column; min-height: 0; }
 #notesPanel > .sync-status, #notesPanel > .sharing-login { flex-shrink: 0; }
+.toolbar, .workspace-tabs, .sync-status, .sharing-login { touch-action: none; }
 .notes-scroll {
   flex: 1; min-height: 0; overflow-x: hidden; overflow-y: auto;
   overscroll-behavior: none; scroll-padding-block: 8px; overflow-anchor: none;
+  scrollbar-gutter: stable; touch-action: pan-y;
   margin-inline: -4px; padding: 4px 4px max(64px, env(safe-area-inset-bottom));
 }
 .toolbar-actions { display: flex; gap: 8px; }
