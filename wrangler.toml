@@ -1,12 +1,9 @@
-name = "expence-tracker"
-compatibility_date = "2026-07-20"
-pages_build_output_dir = "."
+name = "copynotes"
+compatibility_date = "2026-10-31"
+pages_build_output_dir = "dist"
 
 [[d1_databases]]
 binding = "DB"
-database_name = "expence-tracker"
-database_id = "7c14e54f-4fa7-4fcf-ac22-2287aeb00a6a"
-
-[[r2_buckets]]
-binding = "FILES"
-bucket_name = "expence-tracker-files"
+database_name = "copynotes-db"
+database_id = "dac300d5-1d01-4d5b-8274-575be627851a"
+migrations_dir = "migrations"

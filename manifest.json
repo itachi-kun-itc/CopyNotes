@@ -1,22 +1,12 @@
 {
-  "name": "Expence-Tracker",
-  "short_name": "Expence",
-  "description": "家計・給与・カード履歴をまとめて管理する個人用アプリ",
-  "start_url": "/",
-  "scope": "/",
+  "name": "CopyNotes",
+  "short_name": "CopyNotes",
+  "description": "入力して、コピーするだけのシンプルなメモ。",
+  "lang": "ja",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
-  "background_color": "#f7f7f2",
-  "theme_color": "#f7f7f2",
-  "icons": [
-    {
-      "src": "/assets/icon-192.png",
-      "sizes": "192x192",
-      "type": "image/png"
-    },
-    {
-      "src": "/assets/icon-512.png",
-      "sizes": "512x512",
-      "type": "image/png"
-    }
-  ]
+  "background_color": "#fafaf9",
+  "theme_color": "#fafaf9",
+  "icons": [{ "src": "assets/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
 }

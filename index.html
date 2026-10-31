@@ -1,10 +1,83 @@
-<!doctype html><html lang="ja"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><meta name="theme-color" content="#f7f7f2"><title>Expence-Tracker</title><meta name="description" content="家計・給与・カード履歴をまとめて管理する個人用アプリ"><meta property="og:title" content="Expence-Tracker"><meta property="og:description" content="家計・給与・カード履歴をまとめて管理する個人用アプリ"><meta property="og:image" content="/assets/og-image.png"><link rel="icon" type="image/png" href="/assets/favicon.png"><link rel="apple-touch-icon" href="/assets/apple-touch-icon.png"><link rel="manifest" href="/manifest.json"><script>if(location.hostname.endsWith(".github.io"))location.replace(`https://expence-tracker-bpc.pages.dev/${location.search}${location.hash}`)</script><link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin><link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Noto+Sans+JP:wght@400;500;600;700&display=swap" rel="stylesheet"><link rel="stylesheet" href="styles.css?v=20260720-6"><link rel="stylesheet" href="ui.css?v=20260720-35"><link rel="stylesheet" href="salary.css?v=20260720-29"><link rel="stylesheet" href="workspace-overrides.css?v=20260720-6"><link rel="stylesheet" href="academic.css?v=20260720-10"></head><body data-authenticated="false" data-auth-ready="false" data-login-preview="false"><div class="phone-landscape-blocker">スマートフォンの横画面は<br>サポートされておりません。</div>
-<section id="loginGate" class="login-gate" aria-labelledby="loginGateTitle"><div class="login-gate-card"><p class="eyebrow">EXPENCE TRACKER</p><h1 id="loginGateTitle">ようこそ</h1><div class="login-gate-actions"><button type="button" class="secondary-btn" data-auth-gate-register>新規登録</button><button type="button" class="primary-btn" data-auth-gate-login>ログイン</button></div><button type="button" class="login-preview-back" data-login-preview-back>← アプリへ戻る</button></div></section>
-<div class="app-shell"><aside class="sidebar"><a class="brand" href="#"><span class="brand-mark">E</span><span class="brand-name">Expence<br><b>Tracker</b></span></a><nav class="main-nav"><button class="nav-item active" data-view="dashboard"><span data-icon="home"></span>ホーム</button><button class="nav-item" data-view="finances"><span data-icon="wallet"></span>家計</button><button class="nav-item" data-view="salary"><span data-icon="salary"></span>給与</button><button class="nav-item" data-view="cards"><span data-icon="card"></span>カード履歴</button><button class="nav-item" data-view="settings"><span data-icon="settings"></span>設定</button></nav></aside>
-<main><header class="topbar"><div><p class="eyebrow" id="todayLabel"></p><h1 id="pageTitle">ホーム</h1></div><div class="top-actions"><label class="month-picker"><span>‹</span><input type="month" id="monthPicker"><span>›</span></label><button class="avatar" data-account-open aria-label="アカウント"><span data-account-avatar>私</span></button></div></header><div class="content">
-<section id="dashboardView" class="view active"><article class="home-asset-card"><div class="home-asset-main"><p class="label">総資産</p><div class="home-asset-value" id="dashboardAssetTotal">0円</div><p class="home-asset-asof" id="dashboardAssetAsOf">今日時点</p></div><div class="home-next-pay"><div><p id="dashboardForecastLabel">次の給料振込日時点の資産見込み</p><small id="dashboardForecastDate">給与日未設定</small></div><strong id="dashboardForecastValue">0円</strong></div></article><article class="panel home-salary-card"><div><p class="label">今月の給料の合計</p><p class="subtle">給与として登録された収入</p></div><strong id="dashboardSalaryTotal">0円</strong></article><div class="section-heading home-category-heading"><div><h2>今月の入出金</h2><p>カテゴリごとの合計</p></div></div><div class="home-category-grid"><article class="panel home-category-panel"><div class="home-category-title"><h2>収入</h2><strong id="dashboardIncomeTotal">0円</strong></div><div id="dashboardIncomeCategories" class="home-category-list"></div></article><article class="panel home-category-panel"><div class="home-category-title"><h2>支出</h2><strong id="dashboardExpenseTotal">0円</strong></div><div id="dashboardExpenseCategories" class="home-category-list"></div></article></div></section>
-<section id="financesView" class="view"><div class="finance-topline"><div class="salary-month-row finance-month-stepper"><button type="button" data-finance-month-step="-1" aria-label="前月">‹</button><label><strong data-finance-month-label></strong><small data-finance-month-period></small><input type="month" data-finance-month aria-label="家計の年月"></label><button type="button" data-finance-month-step="1" aria-label="翌月">›</button></div></div><div data-finance-panel="transactions"><div class="finance-actions-row"><div class="filter-row"><button class="filter active" data-filter="all">すべて</button><button class="filter" data-filter="expense">支出</button><button class="filter" data-filter="income">収入</button></div><button class="primary-btn" data-open-modal>＋ 記録を追加</button></div><article class="panel table-panel"><div id="transactionTable"></div></article><article class="panel expense-breakdown-panel"><div class="card-head"><div><h2>収支の割合</h2><p class="subtle">収入に対する支出の割合</p></div></div><div id="expenseBreakdown" class="expense-breakdown"></div></article></div></section>
-<section id="cardsView" class="view"><div class="card-memo-topline"><div><h2>クレジットカード履歴メモ</h2><p>利用履歴を月ごとに記録</p></div><div class="salary-month-row card-month-stepper"><button type="button" data-card-month-step="-1" aria-label="前月">‹</button><label><strong data-card-month-label></strong><small data-card-month-period></small><input type="month" data-card-month aria-label="カード履歴の年月"></label><button type="button" data-card-month-step="1" aria-label="翌月">›</button></div></div><article class="panel card-history-panel"><div id="cardHistoryList"></div></article><button type="button" class="card-history-fab" data-open-card-modal aria-label="カード履歴を追加">＋</button></section>
-<section id="settingsView" class="view"><div data-settings-main><div class="settings-heading"><h2>設定</h2><p>アカウントとデータ管理</p></div><div class="settings-list"><button type="button" class="settings-row" data-account-open><span data-icon="user"></span><span><b>アカウント</b><small data-account-label>ログイン</small></span><i>›</i></button><button type="button" class="settings-row" data-admin-menu-open hidden><span data-icon="eye"></span><span><b>管理者メニュー</b><small>アカウント管理と表示確認</small></span><i>›</i></button><button type="button" class="settings-row settings-danger" id="resetButton"><span data-icon="reset"></span><span><b>初期化</b><small>アプリ内の保存データを初期状態に戻します</small></span><i>›</i></button></div></div><div class="admin-settings-page" data-admin-page hidden><header class="admin-settings-head"><button type="button" class="admin-back" data-admin-close>← 設定</button><div><p class="eyebrow">ADMIN</p><h2>管理者メニュー</h2><p>管理者専用の確認・管理機能</p></div></header><div class="admin-settings-grid"><section class="admin-panel"><div class="admin-panel-heading"><div><h3>ログイン画面</h3><p>未ログイン時の全画面表示を確認します</p></div></div><button type="button" class="secondary-btn wide admin-preview-action" data-admin-login-preview>ログイン画面をプレビュー</button></section><section class="admin-panel admin-accounts-panel"><div class="admin-panel-heading"><div><h3>ログインアカウント一覧</h3><p>登録済みのアカウントとログイン状態</p></div><button type="button" class="admin-refresh" data-admin-users-refresh>更新</button></div><p class="admin-user-count" data-admin-user-count></p><div class="admin-user-list" data-admin-users><p class="admin-loading">読み込み中…</p></div><p class="admin-status-note" data-admin-error role="status"></p></section></div></div></section>
-</div></main><nav class="mobile-nav" aria-label="メインメニュー"><button type="button" class="active" data-view="dashboard"><i data-icon="home"></i><span>ホーム</span></button><button type="button" data-view="finances"><i data-icon="wallet"></i><span>家計</span></button><button type="button" data-view="salary"><i data-icon="salary"></i><span>給与</span></button><button type="button" data-view="cards"><i data-icon="card"></i><span>カード</span></button><button type="button" data-view="settings"><i data-icon="settings"></i><span>設定</span></button></nav></div>
-<dialog id="transactionModal"><form method="dialog" id="transactionForm"><div class="modal-head"><div><p class="eyebrow" data-transaction-eyebrow>NEW RECORD</p><h2 data-transaction-title>入出金を記録</h2></div><button type="button" class="close-btn" data-close>← 戻る</button></div><div class="type-switch"><label><input type="radio" name="type" value="expense" checked><span>支出</span></label><label><input type="radio" name="type" value="income"><span>収入</span></label></div><label>金額<div class="money-input"><input id="amountInput" type="text" inputmode="numeric" data-money-input required placeholder="3,000"><span>円</span></div></label><div class="form-grid"><label>日付<input id="dateInput" type="date" required></label><label>カテゴリ<select id="categoryInput"></select></label></div><label>メモ<input id="memoInput" type="text" maxlength="40" placeholder="駅前のスーパー"></label><button class="primary-btn wide" value="default" data-transaction-submit>保存する</button></form></dialog><div id="toast" role="status">保存しました</div><script src="app.js?v=20260720-35"></script><script src="salary.js?v=20260720-30"></script><script src="academic.js?v=20260720-8"></script><script src="account.js?v=20260720-16"></script></body></html>
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#fafaf9">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data:; connect-src 'self' https://copynotes-bjx.pages.dev; base-uri 'none'; form-action 'self'">
+  <meta name="description" content="テキストを入力して、コピー。同じログイン番号で端末間の共有も。">
+  <title>CopyNotes</title>
+  <link rel="icon" type="image/svg+xml" href="assets/icon.svg">
+  <link rel="manifest" href="manifest.json">
+  <link rel="stylesheet" href="styles.css">
+  <script src="app-config.js" defer></script>
+  <script src="syntax.js" defer></script>
+  <script src="code-editor.js" defer></script>
+  <script src="sharing.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <main class="notes" aria-label="コピーメモ">
+    <header class="toolbar">
+      <div class="toolbar-actions">
+        <button id="refreshNotes" class="toolbar-button" type="button" title="共有タブで更新できます" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 3v5h-5M3 21v-5h5"/><path d="M3 12a9 9 0 0 1 15.36-6.36L21 8M3 16l2.64 2.36A9 9 0 0 0 21 12"/></svg>
+          更新
+        </button>
+        <button id="syncNotes" class="toolbar-button" type="button" title="共有タブの変更を送信" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17H5a4 4 0 0 1-.8-7.9A7 7 0 0 1 17.8 8 4.5 4.5 0 0 1 19 17h-2M12 21V11m-4 4 4-4 4 4"/></svg>
+          同期
+        </button>
+      </div>
+      <button id="accountButton" class="account-button" type="button" aria-haspopup="dialog" aria-controls="loginDialog">ログイン</button>
+    </header>
+    <nav class="workspace-tabs" data-active="device" role="tablist" aria-label="メモの保存先">
+      <button id="deviceTab" class="workspace-tab" type="button" role="tab" aria-selected="true" aria-controls="notesPanel" tabindex="0">端末</button>
+      <button id="sharedTab" class="workspace-tab" type="button" role="tab" aria-selected="false" aria-controls="notesPanel" tabindex="-1">共有</button>
+    </nav>
+    <section id="notesPanel" role="tabpanel" aria-labelledby="deviceTab">
+      <p id="syncStatus" class="sync-status" role="status" aria-live="polite" hidden></p>
+      <div id="sharingLogin" class="sharing-login" hidden>
+        <p>発行済みのログイン番号で、メモを共有できます。</p>
+        <button id="sharingLoginButton" class="toolbar-button" type="button">ログイン</button>
+      </div>
+      <div id="noteList" class="note-list"></div>
+      <button id="addNote" class="add-button" type="button" aria-label="入力欄を追加" title="入力欄を追加">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
+    </section>
+  </main>
+  <dialog id="loginDialog" class="login-dialog" aria-labelledby="loginTitle">
+    <form id="loginForm">
+      <div id="loginFields">
+      <div class="login-heading"><h1 id="loginTitle">ログイン番号</h1><button id="closeLogin" class="dialog-close" type="button" aria-label="閉じる">×</button></div>
+      <p id="loginHelp">発行済みの番号を入力してください。同じ番号の端末で共有できます。</p>
+      <label class="login-label" for="loginNumber">半角数字5桁</label>
+      <input id="loginNumber" class="login-number" name="code" type="text" inputmode="numeric" pattern="[0-9]{5}" minlength="5" maxlength="5" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="00000" aria-describedby="loginHelp loginError" required>
+      </div>
+      <p id="loginError" class="login-error" role="alert"></p>
+      <button id="loginSubmit" class="login-submit" type="submit">ログイン</button>
+      <button id="logoutButton" class="logout-button" type="button" hidden>ログアウト</button>
+    </form>
+  </dialog>
+  <div id="status" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
+  <div id="noteMenu" class="note-menu" role="menu" aria-label="入力欄の操作" hidden>
+    <button id="deleteNote" type="button" role="menuitem">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h18M9 6V4h6v2M5 6l1 14h12l1-14M10 10v6M14 10v6"/></svg>
+      削除
+    </button>
+  </div>
+  <template id="noteTemplate">
+    <div class="note-row">
+      <div class="note-editor">
+        <pre class="note-highlight" aria-hidden="true"></pre>
+        <textarea class="note-input" rows="1" placeholder="テキストを入力…" spellcheck="false"></textarea>
+      </div>
+      <button class="copy-button" type="button" title="コピー" disabled>
+        <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>
+        <svg class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>
+      </button>
+    </div>
+  </template>
+</body>
+</html>

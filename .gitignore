@@ -1,3 +1,8 @@
 node_modules/
 .wrangler/
 .local-account.json
+.local-data/
+dist/
+.dev.vars
+.env
+.env.*

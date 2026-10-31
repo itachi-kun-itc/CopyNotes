@@ -1,11 +1,22 @@
 {
-  "name": "expence-tracker",
+  "name": "copynotes",
   "version": "1.0.0",
   "private": true,
-  "description": "Personal finance tracker with extensible spreadsheet-style modules",
+  "description": "Minimal local and shared copy notes with Cloudflare sync",
   "scripts": {
     "dev": "node server.cjs",
     "start": "node server.cjs",
-    "check": "node --check app.js && node --check workspace.js && node --check salary.js && node --check academic.js && node --check account.js && node --check scripts/create-admin.cjs && node --check functions/_lib/auth.js && node --check functions/api/auth.js && node --check functions/api/admin/users.js && node --check functions/api/data.js && node --check functions/api/files.js && node --check functions/api/files/[id].js"
+    "test": "node --test tests/*.test.cjs",
+    "check": "node --check app.js && node --check app-config.js && node --check syntax.js && node --check code-editor.js && node --check sharing.js && node --check server.cjs && node --check lib/cloud-api.mjs && node --check lib/sqlite-adapter.cjs && node --check lib/login-admin.cjs && node --check scripts/manage-logins.cjs && node --check scripts/build.cjs",
+    "build": "node scripts/build.cjs",
+    "build:pages": "node scripts/build.cjs --github-pages",
+    "cloud:dev": "npm run build && npx --yes wrangler@4.156.0 pages dev dist",
+    "deploy": "gh workflow run pages.yml --ref main --repo itachi-kun-itc/CopyNotes",
+    "deploy:api": "npm run build && npx --yes wrangler@4.156.0 pages deploy dist --project-name copynotes --branch main",
+    "db:migrate": "npx --yes wrangler@4.156.0 d1 migrations apply copynotes-db --remote",
+    "login:issue": "npm exec --yes --package=wrangler@4.156.0 -- node scripts/manage-logins.cjs issue",
+    "login:delete": "npm exec --yes --package=wrangler@4.156.0 -- node scripts/manage-logins.cjs delete",
+    "login:delete-all": "npm exec --yes --package=wrangler@4.156.0 -- node scripts/manage-logins.cjs delete-all",
+    "login:status": "npm exec --yes --package=wrangler@4.156.0 -- node scripts/manage-logins.cjs status"
   }
 }
