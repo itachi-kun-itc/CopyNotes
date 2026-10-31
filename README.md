@@ -4,7 +4,7 @@
 
 公開URL：https://itachi-kun-itc.github.io/CopyNotes/
 
-Cloudflare側：https://copynotes-bjx.pages.dev/（共有APIと従来の画面）
+Cloudflare側：https://copynotes-bjx.pages.dev/（同じ最新版の画面と共有API）
 
 ## 使い方
 
@@ -72,7 +72,7 @@ Node.js 24 以降で `npm start` を実行し、http://127.0.0.1:4173 を開き�
 - Functions：`functions/api/[[path]].js`
 - DB スキーマ：`migrations/`（共有メモ・発行済み番号の台帳）
 
-画面はmainへのpushでGitHub Actionsがテスト・ビルドし、GitHub Pagesへ公開します。コミット済みの最新版を再公開する場合は `npm run deploy` を使えます。
+公開時は、画面だけの変更も含めてGitHub PagesとCloudflare Pagesの両方を同じ最新版に更新します。mainへのpushでGitHub Actionsがテスト・ビルドし、GitHub Pagesへ公開します。Cloudflare側も `npm run deploy:api` で公開してください。コミット済みの最新版を両方へ再公開する場合は `npm run deploy` を使えます。GitHub Pagesだけの再公開は `npm run deploy:pages` です。
 
 ```sh
 npm run check
@@ -80,7 +80,7 @@ npm test
 npm run build:pages
 ```
 
-共有APIを変更した場合は、Cloudflare認証後に `npm run db:migrate` と `npm run deploy:api` を実行します。画面の公開はGitHub Pagesが担当します。
+共有APIのスキーマを変更した場合は、Cloudflare認証後に `npm run db:migrate` を実行してから公開します。`npm run deploy:api` はCloudflare側の画面と共有APIをまとめて更新します。
 
 `npm run build:pages` は公開用ファイルだけを `dist/` へコピーし、`app-config.js` にCloudflareの公開API URLを設定します。`npm run build` はCloudflare／ローカル用の同一オリジン設定です。SQLite・セッション・テスト・管理用コマンドはアップロードしません。APIはGitHub Pagesの正確なオリジンだけにCORSを許可します。
 
