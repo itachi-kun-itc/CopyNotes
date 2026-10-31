@@ -17,6 +17,7 @@ const files = new Map([
   ["/app.js", ["app.js", "text/javascript; charset=utf-8"]],
   ["/app-config.js", ["app-config.js", "text/javascript; charset=utf-8"]],
   ["/syntax.js", ["syntax.js", "text/javascript; charset=utf-8"]],
+  ["/links.js", ["links.js", "text/javascript; charset=utf-8"]],
   ["/code-editor.js", ["code-editor.js", "text/javascript; charset=utf-8"]],
   ["/sharing.js", ["sharing.js", "text/javascript; charset=utf-8"]],
   ["/manifest.json", ["manifest.json", "application/manifest+json; charset=utf-8"]],

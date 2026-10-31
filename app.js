@@ -1,6 +1,30 @@
 "use strict";
 
 (() => {
+  // Keep the app at a fixed scale, including while an input has focus.
+  document.addEventListener("keydown", event => {
+    if ((event.ctrlKey || event.metaKey) && !event.altKey
+      && (["+", "=", "-", "_", "0"].includes(event.key)
+        || ["Equal", "Minus", "Digit0", "NumpadAdd", "NumpadSubtract", "Numpad0"].includes(event.code))) {
+      event.preventDefault();
+    }
+  }, { capture: true });
+  document.addEventListener("wheel", event => {
+    if (event.ctrlKey || event.metaKey) event.preventDefault();
+  }, { capture: true, passive: false });
+  for (const type of ["touchstart", "touchmove"]) {
+    document.addEventListener(type, event => {
+      if (event.touches.length > 1) event.preventDefault();
+    }, { capture: true, passive: false });
+  }
+  // Safari also exposes trackpad and pinch zoom through gesture events.
+  for (const type of ["gesturestart", "gesturechange", "gestureend"]) {
+    document.addEventListener(type, event => event.preventDefault(), { capture: true, passive: false });
+  }
+  document.addEventListener("selectstart", event => {
+    if (!event.target.closest?.("input, textarea")) event.preventDefault();
+  });
+
   function removeLegacyData() {
     try {
       for (const key of Object.keys(localStorage)) {
@@ -502,19 +526,19 @@
     row.classList.toggle("is-code", Boolean(language));
     if (language) row.dataset.language = language;
     else delete row.dataset.language;
-    preview.replaceChildren();
-    if (!language) return;
-    const fragment = document.createDocumentFragment();
-    for (const token of CopyNotesSyntax.tokenize(input.value, language)) {
-      if (!token.type) fragment.append(document.createTextNode(token.text));
-      else {
-        const span = document.createElement("span");
-        span.className = `syntax-${token.type}`;
-        span.textContent = token.text;
-        fragment.append(span);
-      }
-    }
-    preview.append(fragment);
+    const links = CopyNotesLinks.find(input.value);
+    row.classList.toggle("has-links", links.length > 0);
+    preview.replaceChildren(CopyNotesLinks.render(document, input.value, CopyNotesSyntax.tokenize(input.value, language), links));
+    updateLinkState(input);
+  }
+
+  function updateLinkState(input) {
+    const row = input.closest(".note-row");
+    const preview = row.querySelector(".note-highlight");
+    const editing = document.activeElement === input;
+    row.classList.toggle("is-editing", editing);
+    preview.setAttribute("aria-hidden", String(editing || !row.classList.contains("has-links")));
+    for (const link of preview.querySelectorAll("a")) link.tabIndex = editing ? -1 : 0;
   }
 
   function fallbackCopy(input, text) {
@@ -556,6 +580,8 @@
     button.setAttribute("aria-label", `テキスト ${number} をコピー`);
     button.disabled = value.length === 0;
     CopyNotesEditor.attach(input);
+    input.addEventListener("focus", () => updateLinkState(input));
+    input.addEventListener("blur", () => updateLinkState(input));
     input.addEventListener("input", () => {
       clearTimeout(copiedTimer);
       button.removeAttribute("data-copied");

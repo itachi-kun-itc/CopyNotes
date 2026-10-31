@@ -5,7 +5,9 @@
   color-scheme: light;
   -webkit-font-smoothing: antialiased;
 }
-* { box-sizing: border-box; }
+* { box-sizing: border-box; -webkit-user-select: none; user-select: none; }
+html { touch-action: pan-x pan-y; }
+input, textarea { -webkit-user-select: text; user-select: text; }
 body { display: flow-root; position: relative; isolation: isolate; margin: 0; min-width: 280px; min-height: 100svh; }
 body::before {
   content: ""; position: fixed; z-index: -1; inset: 0; pointer-events: none;
@@ -143,7 +145,19 @@ button { -webkit-tap-highlight-color: transparent; }
 .note-row, .note-input { -webkit-touch-callout: none; }
 .note-row[data-menu-open] { border-color: #a3aaa0; }
 .note-editor { position: relative; flex: 1; min-width: 0; }
-.note-highlight { display: none; }
+.note-highlight {
+  display: none; position: absolute; inset: 0; margin: 0; padding: 8px 0;
+  overflow: hidden; pointer-events: none;
+  font: inherit; font-size: 16px; line-height: 1.65;
+  white-space: pre-wrap; overflow-wrap: break-word;
+}
+.has-links .note-highlight { display: block; z-index: 1; }
+.has-links .note-input { color: transparent; caret-color: #333633; -webkit-text-fill-color: transparent; }
+.note-link, .note-link span { color: #0969da; }
+.note-link { text-decoration: underline; text-underline-offset: 2px; cursor: pointer; }
+.has-links:not(.is-editing) .note-link { pointer-events: auto; }
+.note-link:focus-visible { outline: 2px solid #0969da; outline-offset: 2px; border-radius: 2px; }
+.is-code .note-link, .is-code .note-link span { color: #6cb6ff; }
 .note-input {
   display: block;
   width: 100%;
@@ -192,6 +206,7 @@ button { -webkit-tap-highlight-color: transparent; }
   pointer-events: none;
 }
 .is-code .note-input { position: relative; color: transparent; caret-color: #d4d4d4; -webkit-text-fill-color: transparent; }
+.has-links .note-input::selection { background: #264f7880; }
 .is-code .note-input::selection { background: #264f7880; }
 .is-code .copy-button { color: #a5a5a5; }
 .is-code .copy-button:hover:not(:disabled) { background: #ffffff12; color: #fff; }
@@ -208,8 +223,10 @@ button { -webkit-tap-highlight-color: transparent; }
   .is-code .note-input, .is-code .note-highlight { font-size: 16px; }
 }
 @media (forced-colors: active) {
-  .is-code .note-highlight { display: none; }
+  .is-code:not(.has-links) .note-highlight { display: none; }
   .is-code .note-input { color: CanvasText; -webkit-text-fill-color: CanvasText; caret-color: CanvasText; }
+  .has-links .note-input { color: transparent; -webkit-text-fill-color: transparent; caret-color: CanvasText; }
+  .note-link, .note-link span, .is-code .note-link, .is-code .note-link span { color: LinkText; }
 }
 .copy-button, .add-button {
   display: grid;
