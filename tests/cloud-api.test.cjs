@@ -87,6 +87,23 @@ test("cross-origin writes and invalid payloads are rejected without changing dat
   assert.deepEqual((await a("notes")).body.notes, []);
 });
 
+test("shared API accepts 3000 characters and atomically rejects longer notes without exposing the limit", async t => {
+  const db = createDatabase(); t.after(() => db.close());
+  const a = client(db); await a('auth', 'POST', { code: '12345' });
+  for (const [id, character] of [['japanese', 'あ'], ['emoji', '😀']]) {
+    const accepted = await a('notes', 'POST', sync([operation(id, character.repeat(3000))]));
+    assert.equal(accepted.status, 200);
+    assert.equal(accepted.body.notes.find(note => note.id === id).text, character.repeat(3000));
+    const rejected = await a('notes', 'POST', sync([
+      operation('not-written', 'valid text'), operation(id, character.repeat(3001), 1),
+    ]));
+    assert.equal(rejected.status, 400); assert.doesNotMatch(rejected.body.error, /3000|文字数/);
+  }
+  const notes = (await a('notes')).body.notes;
+  assert.deepEqual(notes.map(note => note.id).sort(), ['emoji', 'japanese']);
+  assert.ok(notes.every(note => note.version === 1 && Array.from(note.text).length === 3000));
+});
+
 test("login attempts are rate limited and expired sessions cannot read shared notes", async t => {
   const db = createDatabase(); t.after(() => db.close());
   const a = client(db);

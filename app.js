@@ -66,11 +66,14 @@
   const accountButton = document.querySelector('#accountButton');
   const deviceTab = document.querySelector('#deviceTab');
   const sharedTab = document.querySelector('#sharedTab');
+  let tabMotion;
   const syncStatus = document.querySelector('#syncStatus');
   const sharingLogin = document.querySelector('#sharingLogin');
   const loginDialog = document.querySelector('#loginDialog');
   const loginForm = document.querySelector('#loginForm');
   const loginFields = document.querySelector('#loginFields');
+  const loginTitle = document.querySelector('#loginTitle');
+  const loginHelp = document.querySelector('#loginHelp');
   const loginNumber = document.querySelector('#loginNumber');
   const loginError = document.querySelector('#loginError');
   const loginSubmit = document.querySelector('#loginSubmit');
@@ -219,13 +222,14 @@
     document.querySelector('#notesPanel').setAttribute('aria-labelledby', shared ? 'sharedTab' : 'deviceTab');
     accountButton.textContent = authenticated ? 'ログイン中' : 'ログイン';
     accountButton.disabled = busy;
-    refreshButton.disabled = busy || !shared || !authenticated;
-    refreshButton.title = !shared ? '共有タブで更新できます' : authenticated ? '共有内容を取得' : 'ログイン後に更新できます';
+    refreshButton.disabled = shared && (busy || !authenticated);
+    refreshButton.title = !shared ? '空白の入力欄を整理' : authenticated ? '共有内容を取得して空白の入力欄を整理' : 'ログイン後に更新できます';
     syncButton.disabled = busy || !shared || !authenticated;
     syncButton.title = !shared ? '共有タブで同期できます' : authenticated ? '共有タブの変更を送信' : 'ログイン後に同期できます';
     syncButton.setAttribute('aria-busy', String(busy));
     addButton.disabled = shared && !authenticated;
     sharedTab.disabled = busy && !authenticated;
+    tabMotion?.sync();
     loginSubmit.disabled = busy;
     logoutButton.disabled = busy;
     closeLogin.disabled = busy;
@@ -234,8 +238,10 @@
     loginNumber.disabled = authenticated;
     loginSubmit.hidden = authenticated;
     loginDialog.dataset.mode = authenticated ? 'logout' : 'login';
-    loginDialog.setAttribute('aria-labelledby', authenticated ? 'logoutButton' : 'loginTitle');
-    positionAccountMenu();
+    loginTitle.textContent = authenticated ? 'ログアウト' : 'ログイン番号';
+    loginHelp.textContent = authenticated
+      ? 'ログアウトすると、共有メモの閲覧・編集には再度ログインが必要です。'
+      : '発行済みの番号を入力してください。同じ番号の端末で共有できます。';
     sharingLogin.hidden = !shared || authenticated;
     syncStatus.hidden = !shared;
     const pending = pendingOperations().length;
@@ -306,20 +312,7 @@
     loginError.textContent = '';
     loginNumber.value = '';
     if (!loginDialog.open) loginDialog.showModal();
-    positionAccountMenu();
     (authenticated ? logoutButton : loginNumber).focus();
-  }
-
-  function positionAccountMenu() {
-    if (!authenticated || !loginDialog.open) return;
-    const rect = accountButton.getBoundingClientRect();
-    const viewport = window.visualViewport;
-    const left = viewport?.offsetLeft || 0;
-    const top = viewport?.offsetTop || 0;
-    const width = viewport?.width || window.innerWidth;
-    const height = viewport?.height || window.innerHeight;
-    loginDialog.style.setProperty('--account-menu-left', `${Math.max(left + 8, Math.min(rect.right - loginDialog.offsetWidth, left + width - loginDialog.offsetWidth - 8))}px`);
-    loginDialog.style.setProperty('--account-menu-top', `${Math.max(top + 8, Math.min(rect.bottom + 8, top + height - loginDialog.offsetHeight - 8))}px`);
   }
 
   async function request(path, method = 'GET', body) {
@@ -405,15 +398,8 @@
     if (authenticated) await cloudAction(false, true);
   }
 
-  deviceTab.addEventListener('click', () => setTab('device'));
-  sharedTab.addEventListener('click', () => setTab('shared'));
-  document.querySelector('.workspace-tabs').addEventListener('keydown', event => {
-    if (!['ArrowLeft', 'ArrowRight', 'Home', 'End'].includes(event.key)) return;
-    event.preventDefault();
-    const tab = event.key === 'Home' ? deviceTab : event.key === 'End' ? sharedTab : activeTab === 'device' ? sharedTab : deviceTab;
-    if (tab.disabled) return;
-    setTab(tab === deviceTab ? 'device' : 'shared');
-    if (!loginDialog.open) tab.focus();
+  tabMotion = CopyNotesTabs.attach(document.querySelector('.workspace-tabs'), {
+    onChange: index => setTab(index === 0 ? 'device' : 'shared'),
   });
   accountButton.addEventListener('click', openLogin);
   document.querySelector('#sharingLoginButton').addEventListener('click', openLogin);
@@ -423,12 +409,20 @@
     const rect = loginDialog.getBoundingClientRect();
     if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) loginDialog.close();
   });
-  window.addEventListener('resize', positionAccountMenu);
-  window.visualViewport?.addEventListener('resize', positionAccountMenu);
-  window.visualViewport?.addEventListener('scroll', positionAccountMenu);
   loginDialog.addEventListener('cancel', event => { if (busy) event.preventDefault(); });
   loginNumber.addEventListener('input', () => { loginError.textContent = ''; });
-  refreshButton.addEventListener('click', () => { if (activeTab === 'shared') cloudAction(false); });
+  refreshButton.addEventListener('click', async () => {
+    if (refreshButton.disabled) return;
+    const expectedTab = activeTab;
+    await waitForIdle();
+    if (activeTab !== expectedTab || refreshButton.disabled) return;
+    compactNotes();
+    scheduleResizeNotes();
+    if (activeTab === 'shared') {
+      autoSync.changed();
+      await cloudAction(false, true);
+    } else announce('更新しました');
+  });
   syncButton.addEventListener('click', () => { if (activeTab === 'shared') cloudAction(true); });
   loginForm.addEventListener('submit', async event => {
     event.preventDefault();
@@ -641,6 +635,7 @@
     input.setAttribute("aria-label", `コピーするテキスト ${number}`);
     button.setAttribute("aria-label", `テキスト ${number} をコピー`);
     button.disabled = value.length === 0;
+    CopyNotesLimits.attach(input);
     CopyNotesEditor.attach(input);
     input.addEventListener("focus", () => updateLinkState(input));
     input.addEventListener("blur", () => updateLinkState(input));

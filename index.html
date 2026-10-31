@@ -13,17 +13,19 @@
   <script src="app-config.js" defer></script>
   <script src="syntax.js" defer></script>
   <script src="links.js" defer></script>
+  <script src="note-limits.js" defer></script>
   <script src="code-editor.js" defer></script>
   <script src="sharing.js" defer></script>
   <script src="auto-sync.js" defer></script>
   <script src="touch-notes.js" defer></script>
+  <script src="workspace-tabs.js" defer></script>
   <script src="app.js" defer></script>
 </head>
 <body>
   <main class="notes" aria-label="コピーメモ">
     <header class="toolbar">
       <div class="toolbar-actions">
-        <button id="refreshNotes" class="toolbar-button" type="button" title="共有タブで更新できます" disabled>
+        <button id="refreshNotes" class="toolbar-button" type="button" title="空白の入力欄を整理">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 3v5h-5M3 21v-5h5"/><path d="M3 12a9 9 0 0 1 15.36-6.36L21 8M3 16l2.64 2.36A9 9 0 0 0 21 12"/></svg>
           更新
         </button>
@@ -52,11 +54,11 @@
       </div>
     </section>
   </main>
-  <dialog id="loginDialog" class="login-dialog" aria-labelledby="loginTitle">
+  <dialog id="loginDialog" class="login-dialog" aria-labelledby="loginTitle" aria-describedby="loginHelp">
     <form id="loginForm">
-      <div id="loginFields">
       <div class="login-heading"><h1 id="loginTitle">ログイン番号</h1><button id="closeLogin" class="dialog-close" type="button" aria-label="閉じる">×</button></div>
       <p id="loginHelp">発行済みの番号を入力してください。同じ番号の端末で共有できます。</p>
+      <div id="loginFields">
       <label class="login-label" for="loginNumber">半角数字5桁</label>
       <input id="loginNumber" class="login-number" name="code" type="text" inputmode="numeric" pattern="[0-9]{5}" minlength="5" maxlength="5" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="00000" aria-describedby="loginHelp loginError" required>
       </div>

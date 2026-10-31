@@ -274,6 +274,7 @@ globalThis.CopyNotesEditor = (() => {
         return true;
       }
       const expected = input.value.slice(0, change.from) + change.text + input.value.slice(change.to);
+      if (globalThis.CopyNotesLimits && !CopyNotesLimits.accepts(input.value, expected)) return false;
       input.setSelectionRange(change.from, change.to);
       // Native insertion preserves the browser's undo/redo history.
       try { document.execCommand("insertText", false, change.text); } catch { /* Use the textarea fallback. */ }
@@ -296,7 +297,7 @@ globalThis.CopyNotesEditor = (() => {
       const change = event.key === "Enter" ? newline(value, start, end, language)
         : event.key === "Tab" ? indent(value, start, end, event.shiftKey, language)
         : event.key === "Backspace" ? backspace(value, start, end, language) : null;
-      if (change) { event.preventDefault(); apply(change); }
+      if (change && (apply(change) || event.key === 'Tab')) event.preventDefault();
     });
     input.addEventListener("beforeinput", event => {
       if (event.isComposing || composing || !event.cancelable) return;
@@ -305,13 +306,13 @@ globalThis.CopyNotesEditor = (() => {
       const change = ["insertLineBreak", "insertParagraph"].includes(event.inputType) ? newline(value, start, end, language)
         : event.inputType === "insertText" && event.data?.length === 1 ? character(value, start, end, event.data, language)
         : event.inputType === "deleteContentBackward" ? backspace(value, start, end, language) : null;
-      if (change) { event.preventDefault(); apply(change); }
+      if (change && apply(change)) event.preventDefault();
     });
     input.addEventListener("paste", event => {
       if (composing || !event.clipboardData) return;
       const inserted = event.clipboardData.getData("text/plain");
       const change = paste(input.value, input.selectionStart, input.selectionEnd, inserted);
-      if (change) { event.preventDefault(); apply(change); }
+      if (change && apply(change)) event.preventDefault();
     });
     input.autocapitalize = "off";
     input.setAttribute("autocorrect", "off");

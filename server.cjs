@@ -18,10 +18,12 @@ const files = new Map([
   ["/app-config.js", ["app-config.js", "text/javascript; charset=utf-8"]],
   ["/syntax.js", ["syntax.js", "text/javascript; charset=utf-8"]],
   ["/links.js", ["links.js", "text/javascript; charset=utf-8"]],
+  ["/note-limits.js", ["note-limits.js", "text/javascript; charset=utf-8"]],
   ["/code-editor.js", ["code-editor.js", "text/javascript; charset=utf-8"]],
   ["/sharing.js", ["sharing.js", "text/javascript; charset=utf-8"]],
   ["/auto-sync.js", ["auto-sync.js", "text/javascript; charset=utf-8"]],
   ["/touch-notes.js", ["touch-notes.js", "text/javascript; charset=utf-8"]],
+  ["/workspace-tabs.js", ["workspace-tabs.js", "text/javascript; charset=utf-8"]],
   ["/manifest.json", ["manifest.json", "application/manifest+json; charset=utf-8"]],
   ["/assets/icon.svg", ["assets/icon.svg", "image/svg+xml"]],
 ]);
