@@ -8,7 +8,10 @@ globalThis.CopyNotesSharing = (() => {
   }
   function clean(note) { return { ...note, dirty: false, originalText: note.text }; }
   function operations(notes) {
-    return notes.filter(note => note.dirty).map(note => ({ id: note.id, text: note.deleted ? "" : note.text, baseVersion: note.version, deleted: note.deleted, mutationId: note.mutationId }));
+    return notes.filter(note => note.dirty).map(note => {
+      const deleted = note.deleted || isBlank(note.text);
+      return { id: note.id, text: deleted ? "" : note.text, baseVersion: note.version, deleted, mutationId: note.mutationId };
+    });
   }
   function sort(notes) {
     return notes.sort((a, b) => (a.version ? a.order : Infinity) - (b.version ? b.order : Infinity) || (a.position || 0) - (b.position || 0));
@@ -26,7 +29,15 @@ globalThis.CopyNotesSharing = (() => {
       if (!note.dirty) { if (latest) result.push(clean(latest)); continue; }
       if (!latest) {
         if (note.version === 0) result.push(note);
-        else if (!note.deleted) { const copy = draft(note.text); result.push(copy); preserved.push([note.id, copy.id]); copies++; }
+        else if (!note.deleted && !isBlank(note.text)) { const copy = draft(note.text); result.push(copy); preserved.push([note.id, copy.id]); copies++; }
+        continue;
+      }
+      if (latest.deleted) {
+        result.push(clean(latest));
+        if (!note.deleted && !isBlank(note.text)) {
+          const copy = draft(note.text);
+          result.push(copy); preserved.push([note.id, copy.id]); copies++;
+        }
         continue;
       }
       if (latest.mutationId === note.mutationId || latest.deleted && note.deleted) {
@@ -39,7 +50,7 @@ globalThis.CopyNotesSharing = (() => {
         result.push(note);
       } else {
         result.push(clean(latest));
-        if (!note.deleted) { const copy = draft(note.text); result.push(copy); preserved.push([note.id, copy.id]); copies++; }
+        if (!note.deleted && !isBlank(note.text)) { const copy = draft(note.text); result.push(copy); preserved.push([note.id, copy.id]); copies++; }
         else deletions++;
       }
     }
