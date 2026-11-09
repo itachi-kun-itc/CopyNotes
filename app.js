@@ -639,20 +639,7 @@
       const item = document.createElement('div'); item.className = 'note-image';
       const image = document.createElement('img');
       image.src = src; image.alt = `添付画像 ${index + 1}`; image.draggable = false;
-      const actions = document.createElement('div'); actions.className = 'image-actions';
-      const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = 'コピー';
-      copy.setAttribute('aria-label', `画像 ${index + 1} をコピー`);
-      copy.addEventListener('click', async () => {
-        try { await CopyNotesImages.copy(src); announce('画像をコピーしました'); }
-        catch (error) { announce(error.message || '画像をコピーできませんでした'); }
-      });
-      const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '削除';
-      remove.setAttribute('aria-label', `画像 ${index + 1} を削除`);
-      remove.addEventListener('click', () => {
-        row.noteImages.splice(index, 1); renderImages(row); saveNotes(); autoSync.changed();
-        row.querySelector('.attach-image').focus({ preventScroll: true });
-      });
-      actions.append(copy, remove); item.append(image, actions); gallery.append(item);
+      item.append(image); gallery.append(item);
     });
   }
 

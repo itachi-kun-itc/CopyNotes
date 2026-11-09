@@ -43,17 +43,5 @@ globalThis.CopyNotesImages = (() => {
     }
     throw new Error('画像が大きすぎます。小さい画像をお試しください');
   }
-  async function copy(src) {
-    if (!navigator.clipboard?.write || !globalThis.ClipboardItem) throw new Error('画像のコピーに対応していません');
-    // Start the clipboard write in the user gesture (required by Safari).
-    const png = (async () => {
-      const image = new Image(); image.src = src; await image.decode();
-      const canvas = document.createElement('canvas');
-      canvas.width = image.naturalWidth; canvas.height = image.naturalHeight;
-      canvas.getContext('2d').drawImage(image, 0, 0);
-      return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('画像をコピーできませんでした')), 'image/png'));
-    })();
-    await navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]);
-  }
-  return Object.freeze({ maxImages, maxBytes, valid, equal, isBlank, filesFrom, prepare, copy });
+  return Object.freeze({ maxImages, maxBytes, valid, equal, isBlank, filesFrom, prepare });
 })();
