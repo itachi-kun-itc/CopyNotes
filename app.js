@@ -62,6 +62,9 @@
   let apiSession = '';
   const refreshButton = document.querySelector('#refreshNotes');
   const syncButton = document.querySelector('#syncNotes');
+  const noticeButton = document.querySelector('#noticeButton');
+  const noticeDialog = document.querySelector('#noticeDialog');
+  const closeNotice = document.querySelector('#closeNotice');
   const accountButton = document.querySelector('#accountButton');
   const deviceTab = document.querySelector('#deviceTab');
   const sharedTab = document.querySelector('#sharedTab');
@@ -432,6 +435,13 @@
     } else announce('更新しました');
   });
   syncButton.addEventListener('click', () => { if (activeTab === 'shared') cloudAction(true); });
+  noticeButton.addEventListener('click', () => { if (!noticeDialog.open) noticeDialog.showModal(); });
+  closeNotice.addEventListener('click', () => noticeDialog.close());
+  noticeDialog.addEventListener('click', event => {
+    if (event.target !== noticeDialog) return;
+    const rect = noticeDialog.getBoundingClientRect();
+    if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) noticeDialog.close();
+  });
   loginForm.addEventListener('submit', async event => {
     event.preventDefault();
     if (busy || authenticated) return;

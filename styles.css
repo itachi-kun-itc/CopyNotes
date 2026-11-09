@@ -24,7 +24,7 @@ button { -webkit-tap-highlight-color: transparent; }
   height: 100%; min-height: 0; margin: 0 auto;
   padding-top: max(32px, env(safe-area-inset-top));
 }
-.toolbar { display: flex; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
+.toolbar { display: flex; flex-wrap: wrap; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
 #notesPanel { display: flex; flex: 1; flex-direction: column; min-height: 0; }
 #notesPanel > .sync-status, #notesPanel > .sharing-login { flex-shrink: 0; }
 .toolbar, .workspace-tabs, .sync-status, .sharing-login { touch-action: none; }
@@ -34,7 +34,8 @@ button { -webkit-tap-highlight-color: transparent; }
   scrollbar-gutter: stable; touch-action: pan-y;
   margin-inline: -4px; padding: 4px 4px max(64px, env(safe-area-inset-bottom));
 }
-.toolbar-actions { display: flex; gap: 8px; }
+.toolbar-actions { display: flex; flex-wrap: wrap; min-width: 0; gap: 8px; }
+.toolbar-actions .toolbar-button { white-space: nowrap; }
 .toolbar-button, .account-button, .login-submit, .logout-button {
   position: relative; isolation: isolate;
   display: inline-flex; align-items: center; justify-content: center; gap: 7px;
@@ -71,7 +72,7 @@ button { -webkit-tap-highlight-color: transparent; }
     transform: translateY(-1px);
   }
 }
-.account-button { white-space: nowrap; }
+.account-button { margin-left: auto; white-space: nowrap; }
 .workspace-tabs {
   position: relative; isolation: isolate; display: flex; flex-shrink: 0; gap: 4px;
   margin-bottom: 22px; padding: 5px; border: 1px solid #ffffffbd; border-radius: 999px;
@@ -113,10 +114,11 @@ button { -webkit-tap-highlight-color: transparent; }
 .sync-status { margin: -4px 0 16px; color: #8b9385; font-size: 12px; line-height: 1.6; }
 .sharing-login { padding: 28px 18px; text-align: center; border: 1px dashed #dfe3d9; border-radius: 14px; }
 .sharing-login p { margin: 0 0 16px; color: #88917f; font-size: 13px; line-height: 1.8; }
-.login-dialog { width: min(360px, calc(100% - 32px)); max-height: calc(100% - 32px); padding: 26px; border: 1px solid #e5e6e2; border-radius: 18px; color: #333633; background: #fafaf9; box-shadow: 0 16px 70px #1e291d26; }
-.login-dialog::backdrop { background: #252b2540; backdrop-filter: blur(3px); }
-.login-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
-.login-heading h1 { margin: 0; font-size: 19px; font-weight: 600; }
+.login-dialog, .notice-dialog { width: min(360px, calc(100% - 32px)); max-height: calc(100% - 32px); padding: 26px; border: 1px solid #e5e6e2; border-radius: 18px; color: #333633; background: #fafaf9; box-shadow: 0 16px 70px #1e291d26; }
+.login-dialog::backdrop, .notice-dialog::backdrop { background: #252b2540; backdrop-filter: blur(3px); }
+.login-heading, .notice-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.login-heading h1, .notice-heading h2 { margin: 0; font-size: 19px; font-weight: 600; }
+.notice-message { margin: 18px 0 0; color: #8c9485; font-size: 13px; line-height: 1.8; }
 .dialog-close { width: 36px; height: 36px; border: 0; border-radius: 8px; color: #899180; background: transparent; font-size: 25px; cursor: pointer; }
 .login-dialog p { font-size: 13px; line-height: 1.8; }
 #loginHelp { margin: 10px 0 24px; color: #8c9485; }
