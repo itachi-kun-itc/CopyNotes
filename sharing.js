@@ -9,6 +9,16 @@ globalThis.CopyNotesSharing = (() => {
     return { id: id(), text, images: [...images], version: 0, order: null, position: 0, syncedAt: null, deleted: false, dirty: true, originalText: "", originalImages: [], mutationId: id() };
   }
   function clean(note) { return { ...note, dirty: false, originalText: note.text, originalImages: [...(note.images || [])] }; }
+  function normalizeLegacy(notes) {
+    const keys = ['id', 'text', 'images', 'version', 'order', 'position', 'syncedAt', 'deleted', 'dirty', 'originalText', 'originalImages', 'mutationId', 'pendingMutationId'];
+    return notes.flatMap(value => {
+      const note = Object.fromEntries(keys.filter(key => key in value).map(key => [key, value[key]]));
+      if (note.deleted || CopyNotesImages.validNote(note)) return [note];
+      return CopyNotesImages.split(note).map((part, index) => index === 0
+        ? { ...part, dirty: true, mutationId: id() }
+        : { ...draft(part.text, part.images), id: part.id });
+    });
+  }
   function operations(notes) {
     return notes.filter(note => note.dirty).map(note => {
       const deleted = note.deleted || isBlank(note.text, note.images);
@@ -57,7 +67,7 @@ globalThis.CopyNotesSharing = (() => {
         }
         continue;
       }
-      if (latest.mutationId === note.mutationId || latest.deleted && note.deleted) {
+      if (latest.mutationId === note.mutationId || !note.deleted && CopyNotesImages.equalNote(note, latest)) {
         result.push(clean(latest));
       } else if (latest.mutationId === posted.get(note.id)?.mutationId || latest.mutationId === note.pendingMutationId) {
         // The user continued editing while their previous snapshot was uploading.
@@ -93,5 +103,5 @@ globalThis.CopyNotesSharing = (() => {
       return [{ ...note, deleted: true, dirty: true, mutationId: id() }];
     });
   }
-  return Object.freeze({ draft, operations, batch, sort, merge, update, remove, isBlank, compactBlank });
+  return Object.freeze({ draft, operations, batch, sort, merge, update, remove, isBlank, compactBlank, normalizeLegacy });
 })();

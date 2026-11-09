@@ -75,7 +75,7 @@
   </dialog>
   <dialog id="noticeDialog" class="notice-dialog" aria-labelledby="noticeTitle" aria-describedby="noticeMessage">
     <div class="notice-heading"><h2 id="noticeTitle">お知らせ</h2><button id="closeNotice" class="dialog-close" type="button" aria-label="閉じる">×</button></div>
-    <p id="noticeMessage" class="notice-message">画像を追加できるようになりました。</p>
+    <p id="noticeMessage" class="notice-message">文字列のコピーに加えて、<br>画像のコピー、ダウンロードに対応しました。<br>1つのメモにつき、画像は最大1枚まで追加できます。</p>
   </dialog>
   <div id="status" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
   <div id="noteMenu" class="note-menu" role="menu" aria-label="入力欄の操作" hidden>
@@ -93,18 +93,22 @@
         </div>
         <div class="note-images" aria-label="添付画像" hidden></div>
         <div class="image-tools">
-          <button class="attach-image" type="button" title="画像を追加（最大3枚）">
+          <button class="attach-image" type="button" title="画像を追加（最大1枚）" aria-label="画像を追加（最大1枚）">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 6-6 4 4 3-3 5 5"/></svg>
-            画像を追加
           </button>
-          <span class="image-count" aria-label="画像の枚数">0/3</span>
-          <input class="image-input" type="file" accept="image/*" multiple aria-label="画像を選択" hidden>
+          <span class="image-count" aria-label="画像の枚数" hidden>0/1</span>
+          <input class="image-input" type="file" accept="image/*" aria-label="画像を選択" hidden>
         </div>
       </div>
-      <button class="copy-button" type="button" title="コピー" disabled>
-        <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>
-        <svg class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>
-      </button>
+      <div class="note-actions">
+        <button class="copy-button" type="button" title="コピー" disabled>
+          <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="8" y="8" width="12" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>
+          <svg class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m5 12 4 4L19 6"/></svg>
+        </button>
+        <button class="download-button" type="button" title="ダウンロード" aria-label="添付内容をダウンロード" hidden>
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v12m-4-4 4 4 4-4M4 16v5h16v-5"/></svg>
+        </button>
+      </div>
     </div>
   </template>
 </body>

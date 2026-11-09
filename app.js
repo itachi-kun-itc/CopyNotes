@@ -160,16 +160,16 @@
 
   function persistShared() {
     if (!roomId) return;
-    try { localStorage.setItem('copynotes.shared.v1.' + roomId, JSON.stringify(sharedNotes)); }
+    try { localStorage.setItem('copynotes.shared.v4.' + roomId, JSON.stringify(sharedNotes)); }
     catch { storageWarning(); }
   }
 
   function readShared() {
     try {
-      const value = JSON.parse(localStorage.getItem('copynotes.shared.v1.' + roomId) || '[]');
-      if (Array.isArray(value) && value.every(note => note && typeof note.id === 'string' && typeof note.text === 'string' && CopyNotesImages.valid(note.images) && Number.isSafeInteger(note.version) && typeof note.dirty === 'boolean')) {
-        const compacted = sharing.compactBlank(value);
-        try { localStorage.setItem('copynotes.shared.v1.' + roomId, JSON.stringify(compacted)); } catch { storageWarning(); }
+      const value = JSON.parse(localStorage.getItem('copynotes.shared.v4.' + roomId) ?? localStorage.getItem('copynotes.shared.v3.' + roomId) ?? localStorage.getItem('copynotes.shared.v2.' + roomId) ?? localStorage.getItem('copynotes.shared.v1.' + roomId) ?? '[]');
+      if (Array.isArray(value) && value.every(note => note && typeof note.id === 'string' && typeof note.text === 'string' && CopyNotesImages.valid(note.images, 3) && Number.isSafeInteger(note.version) && typeof note.dirty === 'boolean')) {
+        const compacted = sharing.compactBlank(sharing.normalizeLegacy(value));
+        try { localStorage.setItem('copynotes.shared.v4.' + roomId, JSON.stringify(compacted)); } catch { storageWarning(); }
         return compacted;
       }
     } catch { storageWarning(); }
@@ -276,7 +276,7 @@
         const input = row.querySelector('textarea');
         if (input.value !== note.text) {
           input.value = note.text;
-          updateCopyButton(row);
+          updateNoteState(row);
           row.querySelector('.copy-button').removeAttribute('data-copied');
           highlight(input); resize(input);
         }
@@ -372,6 +372,7 @@
     if (!automatic) cloudMessage = synchronize ? '同期中…' : '更新中…';
     updateWorkspace();
     try {
+      if (roomId !== expectedRoom || !authenticated) return false;
       const data = sent.length ? await request('notes', 'POST', { requestId: crypto.randomUUID(), operations: sent }) : await request('notes');
       await waitForIdle();
       if (roomId !== expectedRoom || !authenticated) return false;
@@ -639,19 +640,41 @@
     if (!copied) throw new Error("Copy unavailable");
   }
 
-  function updateCopyButton(row) {
+  function rowContent(row) {
+    return { text: row.querySelector('textarea').value, images: row.noteImages };
+  }
+
+  function updateNoteState(row) {
+    const input = row.querySelector('textarea');
+    const note = rowContent(row);
+    const pending = Boolean(row.pendingAttachments);
+    const media = Boolean(note.images.length);
+    const moveFocus = media && document.activeElement === input;
     const button = row.querySelector('.copy-button');
-    button.disabled = row.querySelector('textarea').value.length === 0 && row.noteImages.length === 0;
+    const unsupported = media && !CopyNotesImages.canCopy();
+    button.disabled = !note.text.length && !media || unsupported;
     button.removeAttribute('data-copied');
+    button.title = unsupported ? 'この形式・ブラウザではコピーできません。下のDLボタンをご利用ください' : 'コピー';
+    button.setAttribute('aria-label', 'メモをコピー');
+    const download = row.querySelector('.download-button');
+    download.hidden = !media;
+    download.disabled = !media;
+    download.setAttribute('aria-label', '画像をダウンロード');
+    row.classList.toggle('has-attachment', media);
+    // Keep subsequent pastes in this memo when its text editor disappears.
+    if (moveFocus) (button.disabled ? download : button).focus({ preventScroll: true });
+    row.setAttribute('aria-busy', String(pending));
+    input.readOnly = media || pending;
+    input.placeholder = pending ? '読み込み中…' : 'テキストを入力…';
+    row.querySelector('.attach-image').disabled = pending || note.text.length > 0 || note.images.length >= CopyNotesImages.maxImages;
+    row.querySelector('.image-count').textContent = `${row.noteImages.length}/${CopyNotesImages.maxImages}`;
   }
 
   function renderImages(row) {
-    updateCopyButton(row);
+    updateNoteState(row);
     const gallery = row.querySelector('.note-images');
     gallery.replaceChildren();
     gallery.hidden = row.noteImages.length === 0;
-    row.querySelector('.image-count').textContent = `${row.noteImages.length}/3`;
-    row.querySelector('.attach-image').disabled = row.noteImages.length >= CopyNotesImages.maxImages;
     row.noteImages.forEach((src, index) => {
       const item = document.createElement('div'); item.className = 'note-image';
       const image = document.createElement('img');
@@ -661,21 +684,29 @@
   }
 
   function attachImages(row, files) {
+    if (!files.length) return;
+    if (files.some(file => !file.type.startsWith('image/'))) { announce('画像のみ添付できます'); return; }
+    const blocked = () => rowContent(row).text.length > 0 || row.noteImages.length >= CopyNotesImages.maxImages;
+    const explain = () => announce(row.noteImages.length >= CopyNotesImages.maxImages ? '画像は1つのメモに1枚までです' : '文字と画像は別々のメモにしてください');
+    if (blocked()) { explain(); return; }
     const tab = activeTab;
     preparingImages++;
-    row.imageQueue = (row.imageQueue || Promise.resolve()).then(async () => {
+    row.pendingAttachments = (row.pendingAttachments || 0) + 1; updateNoteState(row);
+    row.attachmentQueue = (row.attachmentQueue || Promise.resolve()).then(async () => {
       let added = 0;
       for (const file of files) {
         if (!row.isConnected || activeTab !== tab || row.classList.contains('is-removing')) break;
-        if (row.noteImages.length >= CopyNotesImages.maxImages) { announce('画像は1つのメモに3枚までです'); break; }
+        if (blocked()) { explain(); break; }
         try {
-          const src = await CopyNotesImages.prepare(file);
+          const prepared = await CopyNotesImages.prepare(file);
           if (!row.isConnected || activeTab !== tab || row.classList.contains('is-removing')) break;
-          row.noteImages.push(src); renderImages(row); saveNotes(); autoSync.changed(); added++;
-        } catch (error) { announce(error.message || '画像を読み込めませんでした'); }
+          if (blocked()) { explain(); break; }
+          row.noteImages.push(prepared);
+          renderImages(row); saveNotes(); autoSync.changed(); added++;
+        } catch (error) { announce(error.message || '添付内容を読み込めませんでした'); }
       }
-      if (added && files.length === added) announce(`画像を${added}枚追加しました`);
-    }).finally(() => { preparingImages--; releaseIdle(); autoSync.changed(); });
+      if (added && files.length === added) announce('画像を追加しました');
+    }).finally(() => { row.pendingAttachments--; updateNoteState(row); preparingImages--; releaseIdle(); autoSync.changed(); });
   }
 
   function addNote(value = "", model = null) {
@@ -691,14 +722,24 @@
       row.dataset.noteId = model.id;
     }
     let copiedTimer;
+    input.value = value;
     row.noteImages = [...(model.images || [])];
     renderImages(row);
     // Capture before textarea paste handlers so image pastes never replace text.
     row.addEventListener('paste', event => {
       const files = CopyNotesImages.filesFrom(event.clipboardData);
-      if (!files.length) return;
+      if (!files.length && !input.readOnly) return;
       event.preventDefault(); event.stopImmediatePropagation();
-      attachImages(row, files);
+      if (files.length) attachImages(row, files);
+      else announce('文字と画像は別々のメモにしてください');
+    }, true);
+    row.addEventListener('beforeinput', event => { if (input.readOnly) { event.preventDefault(); event.stopImmediatePropagation(); } }, true);
+    row.addEventListener('dragover', event => { if (Array.from(event.dataTransfer?.types || []).includes('Files')) event.preventDefault(); });
+    row.addEventListener('drop', event => {
+      const files = CopyNotesImages.filesFrom(event.dataTransfer);
+      if (!files.length && !input.readOnly && !Array.from(event.dataTransfer?.types || []).includes('Files')) return;
+      event.preventDefault(); event.stopImmediatePropagation();
+      if (files.length) attachImages(row, files);
     }, true);
     const fileInput = row.querySelector('.image-input');
     row.querySelector('.attach-image').addEventListener('click', () => fileInput.click());
@@ -706,28 +747,36 @@
       const files = Array.from(fileInput.files); fileInput.value = '';
       if (files.length) attachImages(row, files);
     });
-    input.value = value;
+    input.addEventListener('input', () => { if (row.noteImages.length) input.value = ''; }, true);
     input.setAttribute("aria-haspopup", "menu");
     input.setAttribute("aria-controls", "noteMenu");
     input.setAttribute("aria-label", `コピーするテキスト ${number}`);
     button.setAttribute("aria-label", `メモ ${number} をコピー`);
-    updateCopyButton(row);
+    updateNoteState(row);
     CopyNotesLimits.attach(input);
     CopyNotesEditor.attach(input);
     input.addEventListener("focus", () => updateLinkState(input));
     input.addEventListener("blur", () => updateLinkState(input));
     input.addEventListener("input", () => {
       clearTimeout(copiedTimer);
-      updateCopyButton(row);
+      updateNoteState(row);
       highlight(input);
       resize(input);
       saveNotes();
       autoSync.changed();
     });
+    row.querySelector('.download-button').addEventListener('click', async () => {
+      const images = [...row.noteImages];
+      if (!images.length) return;
+      try {
+        await CopyNotesImages.download(images);
+        announce('ダウンロードを開始しました');
+      } catch { announce('ダウンロードできませんでした'); }
+    });
     button.addEventListener("click", async () => {
       const text = input.value;
       const images = [...row.noteImages];
-      if (!text && !images.length) return;
+      if (button.disabled || !text && !images.length) return;
       try {
         if (images.length) {
           await CopyNotesImages.copy(text, images);

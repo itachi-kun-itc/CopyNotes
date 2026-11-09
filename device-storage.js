@@ -3,18 +3,18 @@
 if (typeof require === 'function') require('./note-images.js');
 
 globalThis.CopyNotesDeviceStorage = (() => {
-  const key = 'copynotes.notes.v2';
+  const key = 'copynotes.notes.v5';
   const legacyKey = 'copynotes.notes.v1';
   const draft = (text = '', images = []) => ({ id: crypto.randomUUID(), text, ...(images.length ? { images: [...images] } : {}) });
-  const clone = notes => notes.map(note => ({ ...note, ...(note.images ? { images: [...note.images] } : {}) }));
-  const equal = (a, b) => a && b && a.text === b.text && CopyNotesImages.equal(a.images, b.images);
+  const clone = notes => notes.map(note => ({ id: note.id, text: note.text, ...(note.images ? { images: [...note.images] } : {}) }));
+  const equal = (a, b) => a && b && CopyNotesImages.equalNote(a, b);
 
   function create(storage, onError = () => {}) {
     function read() {
       try {
-        const value = JSON.parse(storage.getItem(key) || 'null');
-        if (Array.isArray(value) && value.every(note => note && typeof note.id === 'string' && typeof note.text === 'string' && CopyNotesImages.valid(note.images))
-          && new Set(value.map(note => note.id)).size === value.length) return value;
+        const value = JSON.parse(storage.getItem(key) ?? storage.getItem('copynotes.notes.v4') ?? storage.getItem('copynotes.notes.v3') ?? storage.getItem('copynotes.notes.v2') ?? 'null');
+        if (Array.isArray(value) && value.every(note => note && typeof note.id === 'string' && typeof note.text === 'string' && CopyNotesImages.valid(note.images, 3))
+          && new Set(value.map(note => note.id)).size === value.length) return clone(value).flatMap(CopyNotesImages.split);
         const legacy = JSON.parse(storage.getItem(legacyKey) || 'null');
         if (Array.isArray(legacy) && legacy.every(text => typeof text === 'string')) {
           // Deterministic IDs let tabs migrating the same saved notes agree.
