@@ -1,0 +1,1 @@
+ALTER TABLE shared_notes ADD COLUMN images TEXT NOT NULL DEFAULT '[]';

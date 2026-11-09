@@ -93,6 +93,7 @@
   const composingInputs = new Set();
   const idleWaiters = new Set();
   let removingCount = 0;
+  let preparingImages = 0;
   let backgroundSync = false;
   const touch = CopyNotesTouch.attach(list, {
     onDelete: (row, swipe) => deleteNote(row, swipe), onIdle: releaseIdle,
@@ -111,9 +112,9 @@
   });
 
   function pendingOperations() {
-    return sharing.operations(sharedNotes.filter(note => note.version || note.deleted || note.pendingMutationId || !sharing.isBlank(note.text)));
+    return sharing.operations(sharedNotes.filter(note => note.version || note.deleted || note.pendingMutationId || !CopyNotesImages.isBlank(note)));
   }
-  function interactionActive() { return composingInputs.size > 0 || touch.active || removingCount > 0; }
+  function interactionActive() { return preparingImages > 0 || composingInputs.size > 0 || touch.active || removingCount > 0; }
   function releaseIdle() {
     // compositionend can precede the final input event; merge after both.
     setTimeout(() => {
@@ -163,7 +164,7 @@
   function readShared() {
     try {
       const value = JSON.parse(localStorage.getItem('copynotes.shared.v1.' + roomId) || '[]');
-      if (Array.isArray(value) && value.every(note => note && typeof note.id === 'string' && typeof note.text === 'string' && Number.isSafeInteger(note.version) && typeof note.dirty === 'boolean')) {
+      if (Array.isArray(value) && value.every(note => note && typeof note.id === 'string' && typeof note.text === 'string' && CopyNotesImages.valid(note.images) && Number.isSafeInteger(note.version) && typeof note.dirty === 'boolean')) {
         const compacted = sharing.compactBlank(value);
         try { localStorage.setItem('copynotes.shared.v1.' + roomId, JSON.stringify(compacted)); } catch { storageWarning(); }
         return compacted;
@@ -175,12 +176,12 @@
   function saveNotes() {
     if (activeTab === 'device') {
       persistDevice(Array.from(list.querySelectorAll('.note-row:not(.is-removing)'), row => ({
-        id: row.dataset.noteId, text: row.querySelector('textarea').value,
+        id: row.dataset.noteId, text: row.querySelector('textarea').value, images: [...row.noteImages],
       })));
     } else if (authenticated) {
-      const visible = new Map(Array.from(list.children).filter(row => !row.classList.contains('is-removing')).map(row => [row.dataset.noteId, row.querySelector('textarea').value]));
+      const visible = new Map(Array.from(list.children).filter(row => !row.classList.contains('is-removing')).map(row => [row.dataset.noteId, { text: row.querySelector('textarea').value, images: row.noteImages }]));
       sharedNotes = sharedNotes.filter(note => {
-        if (visible.has(note.id)) sharing.update(note, visible.get(note.id), inFlightIds.has(note.id) || Boolean(note.pendingMutationId));
+        if (visible.has(note.id)) sharing.update(note, visible.get(note.id).text, inFlightIds.has(note.id) || Boolean(note.pendingMutationId), visible.get(note.id).images);
         else if (!note.deleted) {
           if (note.version === 0 && !inFlightIds.has(note.id) && !note.pendingMutationId) return false;
           sharing.remove(note);
@@ -195,14 +196,14 @@
 
   function compactNotes() {
     saveNotes();
-    persistDevice(deviceNotes.filter(note => !sharing.isBlank(note.text)));
+    persistDevice(deviceNotes.filter(note => !CopyNotesImages.isBlank(note)));
     if (authenticated) {
       sharedNotes = sharing.compactBlank(sharedNotes, inFlightIds);
       persistShared();
     }
     const kept = new Set(sharedNotes.filter(note => !note.deleted).map(note => note.id));
     for (const row of Array.from(list.children)) {
-      if (activeTab === 'device' ? sharing.isBlank(row.querySelector('textarea').value) : !kept.has(row.dataset.noteId)) row.remove();
+      if (activeTab === 'device' ? sharing.isBlank(row.querySelector('textarea').value, row.noteImages) : !kept.has(row.dataset.noteId)) row.remove();
     }
     if (menuRow && !menuRow.isConnected) closeMenu();
     cancelPress();
@@ -265,6 +266,10 @@
         let row = existing.get(note.id);
         existing.delete(note.id);
         if (!row) row = addNote(note.text, note);
+        if (!CopyNotesImages.equal(row.noteImages, note.images)) {
+          row.noteImages = [...(note.images || [])];
+          renderImages(row);
+        }
         const input = row.querySelector('textarea');
         if (input.value !== note.text) {
           input.value = note.text;
@@ -370,7 +375,7 @@
       const merged = sharing.merge(sharedNotes, data.notes, sent);
       sharedNotes = merged.notes;
       if (compactRemoteBlanks) {
-        const blankIds = new Set(data.notes.filter(note => !note.deleted && sharing.isBlank(note.text)).map(note => note.id));
+        const blankIds = new Set(data.notes.filter(note => !note.deleted && CopyNotesImages.isBlank(note)).map(note => note.id));
         sharedNotes = sharing.compactBlank(sharedNotes, inFlightIds, blankIds);
       }
       persistShared();
@@ -624,6 +629,51 @@
     if (!copied) throw new Error("Copy unavailable");
   }
 
+  function renderImages(row) {
+    const gallery = row.querySelector('.note-images');
+    gallery.replaceChildren();
+    gallery.hidden = row.noteImages.length === 0;
+    row.querySelector('.image-count').textContent = `${row.noteImages.length}/3`;
+    row.querySelector('.attach-image').disabled = row.noteImages.length >= CopyNotesImages.maxImages;
+    row.noteImages.forEach((src, index) => {
+      const item = document.createElement('div'); item.className = 'note-image';
+      const image = document.createElement('img');
+      image.src = src; image.alt = `添付画像 ${index + 1}`; image.draggable = false;
+      const actions = document.createElement('div'); actions.className = 'image-actions';
+      const copy = document.createElement('button'); copy.type = 'button'; copy.textContent = 'コピー';
+      copy.setAttribute('aria-label', `画像 ${index + 1} をコピー`);
+      copy.addEventListener('click', async () => {
+        try { await CopyNotesImages.copy(src); announce('画像をコピーしました'); }
+        catch (error) { announce(error.message || '画像をコピーできませんでした'); }
+      });
+      const remove = document.createElement('button'); remove.type = 'button'; remove.textContent = '削除';
+      remove.setAttribute('aria-label', `画像 ${index + 1} を削除`);
+      remove.addEventListener('click', () => {
+        row.noteImages.splice(index, 1); renderImages(row); saveNotes(); autoSync.changed();
+        row.querySelector('.attach-image').focus({ preventScroll: true });
+      });
+      actions.append(copy, remove); item.append(image, actions); gallery.append(item);
+    });
+  }
+
+  function attachImages(row, files) {
+    const tab = activeTab;
+    preparingImages++;
+    row.imageQueue = (row.imageQueue || Promise.resolve()).then(async () => {
+      let added = 0;
+      for (const file of files) {
+        if (!row.isConnected || activeTab !== tab || row.classList.contains('is-removing')) break;
+        if (row.noteImages.length >= CopyNotesImages.maxImages) { announce('画像は1つのメモに3枚までです'); break; }
+        try {
+          const src = await CopyNotesImages.prepare(file);
+          if (!row.isConnected || activeTab !== tab || row.classList.contains('is-removing')) break;
+          row.noteImages.push(src); renderImages(row); saveNotes(); autoSync.changed(); added++;
+        } catch (error) { announce(error.message || '画像を読み込めませんでした'); }
+      }
+      if (added && files.length === added) announce(`画像を${added}枚追加しました`);
+    }).finally(() => { preparingImages--; releaseIdle(); autoSync.changed(); });
+  }
+
   function addNote(value = "", model = null) {
     const row = template.content.firstElementChild.cloneNode(true);
     const input = row.querySelector("textarea");
@@ -637,6 +687,21 @@
       row.dataset.noteId = model.id;
     }
     let copiedTimer;
+    row.noteImages = [...(model.images || [])];
+    renderImages(row);
+    // Capture before textarea paste handlers so image pastes never replace text.
+    row.addEventListener('paste', event => {
+      const files = CopyNotesImages.filesFrom(event.clipboardData);
+      if (!files.length) return;
+      event.preventDefault(); event.stopImmediatePropagation();
+      attachImages(row, files);
+    }, true);
+    const fileInput = row.querySelector('.image-input');
+    row.querySelector('.attach-image').addEventListener('click', () => fileInput.click());
+    fileInput.addEventListener('change', () => {
+      const files = Array.from(fileInput.files); fileInput.value = '';
+      if (files.length) attachImages(row, files);
+    });
     input.value = value;
     input.setAttribute("aria-haspopup", "menu");
     input.setAttribute("aria-controls", "noteMenu");

@@ -86,7 +86,7 @@ test("reading cleans legacy blanks and records written by an old deployment with
   const { db, client } = setup(t); const a = client(); const b = client();
   const first = (await a("auth", "POST", { code: "00123" })).body.roomId;
   const second = (await b("auth", "POST", { code: "99999" })).body.roomId;
-  const insert = (room, id, content) => db.prepare("INSERT INTO shared_notes VALUES(?, ?, ?, 1, 1, 0, 1, 0, ?)").bind(room, id, content, crypto.randomUUID()).run();
+  const insert = (room, id, content) => db.prepare("INSERT INTO shared_notes(room_id, id, content, version, sync_order, sync_position, synced_at, deleted, mutation_id) VALUES(?, ?, ?, 1, 1, 0, 1, 0, ?)").bind(room, id, content, crypto.randomUUID()).run();
   insert(first, "legacy", "\u3000\t\n"); insert(second, "legacy", " \n");
   assert.equal((await a("notes")).body.notes[0].deleted, true);
   assert.equal(db.prepare("SELECT * FROM shared_notes WHERE room_id = ?").bind(first).first(), null);

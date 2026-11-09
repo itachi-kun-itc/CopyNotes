@@ -1,16 +1,19 @@
 "use strict";
 
+if (typeof require === 'function') require('./note-images.js');
+
 globalThis.CopyNotesDeviceStorage = (() => {
   const key = 'copynotes.notes.v2';
   const legacyKey = 'copynotes.notes.v1';
-  const draft = (text = '') => ({ id: crypto.randomUUID(), text });
-  const clone = notes => notes.map(note => ({ ...note }));
+  const draft = (text = '', images = []) => ({ id: crypto.randomUUID(), text, ...(images.length ? { images: [...images] } : {}) });
+  const clone = notes => notes.map(note => ({ ...note, ...(note.images ? { images: [...note.images] } : {}) }));
+  const equal = (a, b) => a && b && a.text === b.text && CopyNotesImages.equal(a.images, b.images);
 
   function create(storage, onError = () => {}) {
     function read() {
       try {
         const value = JSON.parse(storage.getItem(key) || 'null');
-        if (Array.isArray(value) && value.every(note => note && typeof note.id === 'string' && typeof note.text === 'string')
+        if (Array.isArray(value) && value.every(note => note && typeof note.id === 'string' && typeof note.text === 'string' && CopyNotesImages.valid(note.images))
           && new Set(value.map(note => note.id)).size === value.length) return value;
         const legacy = JSON.parse(storage.getItem(legacyKey) || 'null');
         if (Array.isArray(legacy) && legacy.every(text => typeof text === 'string')) {
@@ -22,7 +25,7 @@ globalThis.CopyNotesDeviceStorage = (() => {
     }
 
     let baseline = read();
-    const initial = baseline === null ? [draft()] : baseline.filter(note => note.text.trim());
+    const initial = baseline === null ? [draft()] : baseline.filter(note => !CopyNotesImages.isBlank(note));
     baseline ||= [];
 
     function save(local) {
@@ -33,17 +36,17 @@ globalThis.CopyNotesDeviceStorage = (() => {
       const preserved = [];
       for (const note of local) {
         const before = original.get(note.id);
-        if (before && before.text === note.text) continue;
+        if (equal(before, note)) continue;
         const other = merged.get(note.id);
-        if (before && (!other || other.text !== before.text && other.text !== note.text)) {
+        if (before && (!other || !equal(other, before) && !equal(other, note))) {
           // Preserve both edits, including edits made while another tab deletes.
-          const copy = draft(note.text);
+          const copy = draft(note.text, note.images);
           merged.set(copy.id, copy);
           preserved.push([note.id, copy.id]);
-        } else merged.set(note.id, { ...note });
+        } else merged.set(note.id, clone([note])[0]);
       }
       for (const before of baseline) {
-        if (!current.has(before.id) && merged.get(before.id)?.text === before.text) merged.delete(before.id);
+        if (!current.has(before.id) && equal(merged.get(before.id), before)) merged.delete(before.id);
       }
       const notes = [...merged.values()];
       try {
