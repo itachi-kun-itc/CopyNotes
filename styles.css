@@ -119,6 +119,27 @@ button { -webkit-tap-highlight-color: transparent; }
 .login-heading, .notice-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .login-heading h1, .notice-heading h2 { margin: 0; font-size: 19px; font-weight: 600; }
 .notice-message { margin: 18px 0 0; color: #8c9485; font-size: 13px; line-height: 1.8; }
+.notice-button {
+  border-color: #ffffffd9;
+  background: radial-gradient(ellipse at 18% 0, #fffffff0, transparent 65%),
+    linear-gradient(145deg, #ffffffa8, #edf5f082 60%, #dfebe7a3);
+  -webkit-backdrop-filter: blur(24px) saturate(1.7);
+  backdrop-filter: blur(24px) saturate(1.7);
+}
+.notice-button::after {
+  content: ""; position: absolute; z-index: -1; inset: 1px; border-radius: inherit;
+  background: radial-gradient(ellipse at 24% 0, #ffffffd9, transparent 70%);
+  opacity: .6; pointer-events: none;
+  transition: opacity 180ms, transform 220ms cubic-bezier(.2,.8,.2,1);
+}
+.notice-button:active:not(:disabled) { transform: scale(.96, .98); }
+@media (hover: hover) {
+  .notice-button:hover:not(:disabled)::after { opacity: .95; transform: scale(1.01); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .notice-button, .notice-button::after { transition: none; }
+  .notice-button:active:not(:disabled) { transform: none; }
+}
 .dialog-close { width: 36px; height: 36px; border: 0; border-radius: 8px; color: #899180; background: transparent; font-size: 25px; cursor: pointer; }
 .login-dialog p { font-size: 13px; line-height: 1.8; }
 #loginHelp { margin: 10px 0 24px; color: #8c9485; }
@@ -157,6 +178,7 @@ button { -webkit-tap-highlight-color: transparent; }
 }
 @media (prefers-reduced-transparency: reduce) {
   .toolbar-button, .account-button, .login-submit, .workspace-tabs { -webkit-backdrop-filter: none; backdrop-filter: none; background: #f4f7f4; border-color: #d7e0da; }
+  .notice-button::after { display: none; }
   .workspace-tabs::before { background: #fff; }
   .logout-button { -webkit-backdrop-filter: none; backdrop-filter: none; background: #fbecea; border-color: #ecd0cd; }
 }
@@ -166,7 +188,7 @@ button { -webkit-tap-highlight-color: transparent; }
   .logout-button { color: #803b38; border-color: #b7817b; }
 }
 @media (forced-colors: active) {
-  body::before, .toolbar-button::before, .account-button::before, .login-submit::before, .logout-button::before, .workspace-tabs::before { display: none; }
+  body::before, .toolbar-button::before, .account-button::before, .login-submit::before, .logout-button::before, .workspace-tabs::before, .notice-button::after { display: none; }
   .toolbar-button, .account-button, .login-submit, .logout-button, .workspace-tabs, .workspace-tab { background: Canvas; color: CanvasText; border: 1px solid ButtonText; box-shadow: none; -webkit-backdrop-filter: none; backdrop-filter: none; }
   .workspace-tab[aria-selected="true"] { outline: 2px solid Highlight; outline-offset: -3px; }
 }
