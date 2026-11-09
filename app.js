@@ -666,7 +666,9 @@
     row.setAttribute('aria-busy', String(pending));
     input.readOnly = media || pending;
     input.placeholder = pending ? '読み込み中…' : 'テキストを入力…';
-    row.querySelector('.attach-image').disabled = pending || note.text.length > 0 || note.images.length >= CopyNotesImages.maxImages;
+    const attachImage = row.querySelector('.attach-image');
+    attachImage.hidden = note.text.length > 0 || media;
+    attachImage.disabled = pending || note.text.length > 0 || note.images.length >= CopyNotesImages.maxImages;
     row.querySelector('.image-count').textContent = `${row.noteImages.length}/${CopyNotesImages.maxImages}`;
   }
 
