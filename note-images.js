@@ -43,5 +43,34 @@ globalThis.CopyNotesImages = (() => {
     }
     throw new Error('画像が大きすぎます。小さい画像をお試しください');
   }
-  return Object.freeze({ maxImages, maxBytes, valid, equal, isBlank, filesFrom, prepare });
+  async function copy(text, sources) {
+    if (!navigator.clipboard?.write || !globalThis.ClipboardItem) throw new Error('このブラウザは画像のコピーに対応していません');
+    const images = [...sources];
+    if (!images.length || !valid(images)) throw new Error('コピーする画像を確認してください');
+    const png = (async () => {
+      const decoded = await Promise.all(images.map(async src => {
+        const image = new Image(); image.src = src; await image.decode(); return image;
+      }));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(...decoded.map(image => image.naturalWidth));
+      canvas.height = decoded.reduce((height, image) => height + image.naturalHeight, 0);
+      const context = canvas.getContext('2d');
+      let top = 0;
+      for (const image of decoded) {
+        context.drawImage(image, 0, top); top += image.naturalHeight;
+      }
+      return new Promise((resolve, reject) => canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('画像をコピーできませんでした')), 'image/png'));
+    })();
+    // A permission denial may happen before the browser consumes this promise.
+    png.catch(() => {});
+    const escaped = text.replace(/[&<>"']/g, character => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[character]);
+    const html = '<div>' + (text ? '<p style="white-space:pre-wrap">' + escaped + '</p>' : '')
+      + images.map(src => '<p><img src="' + src + '"></p>').join('') + '</div>';
+    const data = { 'image/png': png, 'text/html': new Blob([html], { type: 'text/html' }) };
+    if (text) data['text/plain'] = new Blob([text], { type: 'text/plain' });
+    // Keep write() in the click gesture; Safari accepts deferred image encoding.
+    // Use one ClipboardItem: some platforms only write the first item in a list.
+    await navigator.clipboard.write([new ClipboardItem(data)]);
+  }
+  return Object.freeze({ maxImages, maxBytes, valid, equal, isBlank, filesFrom, prepare, copy });
 })();

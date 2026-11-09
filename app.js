@@ -273,7 +273,7 @@
         const input = row.querySelector('textarea');
         if (input.value !== note.text) {
           input.value = note.text;
-          row.querySelector('.copy-button').disabled = note.text.length === 0;
+          updateCopyButton(row);
           row.querySelector('.copy-button').removeAttribute('data-copied');
           highlight(input); resize(input);
         }
@@ -519,7 +519,7 @@
   function labelNotes() {
     Array.from(list.children).forEach((row, index) => {
       row.querySelector("textarea").setAttribute("aria-label", `コピーするテキスト ${index + 1}`);
-      row.querySelector(".copy-button").setAttribute("aria-label", `テキスト ${index + 1} をコピー`);
+      row.querySelector(".copy-button").setAttribute("aria-label", `メモ ${index + 1} をコピー`);
     });
   }
 
@@ -629,7 +629,14 @@
     if (!copied) throw new Error("Copy unavailable");
   }
 
+  function updateCopyButton(row) {
+    const button = row.querySelector('.copy-button');
+    button.disabled = row.querySelector('textarea').value.length === 0 && row.noteImages.length === 0;
+    button.removeAttribute('data-copied');
+  }
+
   function renderImages(row) {
+    updateCopyButton(row);
     const gallery = row.querySelector('.note-images');
     gallery.replaceChildren();
     gallery.hidden = row.noteImages.length === 0;
@@ -693,16 +700,15 @@
     input.setAttribute("aria-haspopup", "menu");
     input.setAttribute("aria-controls", "noteMenu");
     input.setAttribute("aria-label", `コピーするテキスト ${number}`);
-    button.setAttribute("aria-label", `テキスト ${number} をコピー`);
-    button.disabled = value.length === 0;
+    button.setAttribute("aria-label", `メモ ${number} をコピー`);
+    updateCopyButton(row);
     CopyNotesLimits.attach(input);
     CopyNotesEditor.attach(input);
     input.addEventListener("focus", () => updateLinkState(input));
     input.addEventListener("blur", () => updateLinkState(input));
     input.addEventListener("input", () => {
       clearTimeout(copiedTimer);
-      button.removeAttribute("data-copied");
-      button.disabled = input.value.length === 0;
+      updateCopyButton(row);
       highlight(input);
       resize(input);
       saveNotes();
@@ -710,24 +716,31 @@
     });
     button.addEventListener("click", async () => {
       const text = input.value;
-      if (!text) return;
+      const images = [...row.noteImages];
+      if (!text && !images.length) return;
       try {
-        if (navigator.clipboard?.writeText) {
+        if (images.length) {
+          await CopyNotesImages.copy(text, images);
+        } else if (navigator.clipboard?.writeText) {
           try { await navigator.clipboard.writeText(text); }
           catch { fallbackCopy(input, text); }
         } else {
           fallbackCopy(input, text);
         }
-        if (input.value === text) {
+        if (input.value === text && CopyNotesImages.equal(row.noteImages, images)) {
           clearTimeout(copiedTimer);
           button.setAttribute("data-copied", "");
           copiedTimer = setTimeout(() => button.removeAttribute("data-copied"), 1800);
         }
         announce("コピーしました");
-      } catch {
-        input.focus();
-        input.select();
-        announce("コピーできませんでした。選択したテキストを手動でコピーしてください");
+      } catch (error) {
+        if (images.length) {
+          announce(error.message === 'このブラウザは画像のコピーに対応していません' ? error.message : '画像をコピーできませんでした');
+        } else {
+          input.focus();
+          input.select();
+          announce("コピーできませんでした。選択したテキストを手動でコピーしてください");
+        }
       }
     });
     list.append(row);
