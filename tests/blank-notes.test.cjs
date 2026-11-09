@@ -17,14 +17,17 @@ function setup(t) {
   for (const code of ["00123", "99999"]) db.batch(admin.prepare(db, admin.issue(code)));
   function client() {
     let cookie = "";
+    let room = "";
     return async (endpoint, method = "GET", body) => {
       const { handleApi } = await api;
       const response = await handleApi(new Request("https://copynotes.test/api/" + endpoint, {
-        method, headers: { Origin: "https://copynotes.test", Cookie: cookie, "Content-Type": "application/json" },
+        method, headers: { Origin: "https://copynotes.test", Cookie: cookie, "Content-Type": "application/json", "X-CopyNotes-Room": room },
         ...(body ? { body: JSON.stringify(body) } : {}),
       }), { DB: db });
       if (response.headers.has("set-cookie")) cookie = response.headers.get("set-cookie").split(";")[0];
-      return { status: response.status, body: await response.json() };
+      const data = await response.json();
+      if (endpoint === 'auth' && response.ok) room = data.roomId || '';
+      return { status: response.status, body: data };
     };
   }
   return { db, client };

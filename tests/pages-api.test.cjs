@@ -21,10 +21,11 @@ async function send(db, path = "auth", method = "GET", body, headers = {}) {
 
 test("CORS permits the exact GitHub Pages origin and rejects other origins", async t => {
   const db = setup(t);
-  const allowed = await send(db, "auth", "OPTIONS", undefined, { "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "content-type,authorization" });
+  const allowed = await send(db, "auth", "OPTIONS", undefined, { "Access-Control-Request-Method": "POST", "Access-Control-Request-Headers": "content-type,authorization,x-copynotes-room" });
   assert.equal(allowed.status, 204);
   assert.equal(allowed.headers.get("access-control-allow-origin"), origin);
   assert.match(allowed.headers.get("access-control-allow-headers"), /Authorization/);
+  assert.match(allowed.headers.get("access-control-allow-headers"), /X-CopyNotes-Room/);
   assert.equal(allowed.headers.get("access-control-allow-credentials"), null);
   assert.equal(allowed.headers.get("vary"), "Origin");
   for (const candidate of ["https://other.github.io", origin + ".example.com", "http://itachi-kun-itc.github.io"]) {
@@ -40,7 +41,7 @@ test("Pages issues a 15-minute in-memory session and no cross-site cookie", asyn
   assert.equal(login.body.expiresIn, 900); assert.equal(login.headers.has("set-cookie"), false);
   const session = db.prepare("SELECT expires_at FROM sessions").first();
   assert.ok(session.expires_at >= before + 900000 && session.expires_at <= Date.now() + 900000);
-  const headers = { Authorization: `Bearer ${login.body.sessionToken}` };
+  const headers = { Authorization: `Bearer ${login.body.sessionToken}`, 'X-CopyNotes-Room': login.body.roomId };
   assert.equal((await send(db, "auth", "GET", undefined, headers)).body.authenticated, true);
   assert.equal((await send(db, "notes", "GET", undefined, headers)).status, 200);
   assert.equal((await send(db, "notes")).status, 401);
@@ -64,10 +65,10 @@ test("Pages and native sessions access the same room; expiry and revocation reje
   const first = await send(db, "auth", "POST", { code: "00123" });
   const second = await send(db, "auth", "POST", { code: "00123" });
   assert.equal(first.body.roomId, second.body.roomId);
-  const headers = { Authorization: `Bearer ${first.body.sessionToken}` };
+  const headers = { Authorization: `Bearer ${first.body.sessionToken}`, 'X-CopyNotes-Room': first.body.roomId };
   const operation = { id: "shared", text: "shared across hosts", mutationId: crypto.randomUUID(), baseVersion: 0, deleted: false };
   assert.equal((await send(db, "notes", "POST", { requestId: crypto.randomUUID(), operations: [operation] }, headers)).status, 200);
-  const data = await send(db, "notes", "GET", undefined, { Authorization: `Bearer ${second.body.sessionToken}` });
+  const data = await send(db, "notes", "GET", undefined, { Authorization: `Bearer ${second.body.sessionToken}`, 'X-CopyNotes-Room': second.body.roomId });
   assert.equal(data.body.notes[0].text, operation.text);
   db.batch(admin.prepare(db, admin.remove("00123")));
   assert.equal((await send(db, "notes", "GET", undefined, headers)).status, 401);

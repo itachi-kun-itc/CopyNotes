@@ -7,14 +7,17 @@ const api = import("../lib/cloud-api.mjs");
 
 function client(db) {
   let cookie = "";
+  let room = "";
   return async (path, method = "GET", body) => {
     const { handleApi } = await api;
     const response = await handleApi(new Request(`https://copynotes.test/api/${path}`, {
-      method, headers: { Cookie: cookie, Origin: "https://copynotes.test", "Content-Type": "application/json" },
+      method, headers: { Cookie: cookie, Origin: "https://copynotes.test", "Content-Type": "application/json", "X-CopyNotes-Room": room },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     }), { DB: db });
     if (response.headers.has("set-cookie")) cookie = response.headers.get("set-cookie").split(";")[0];
-    return { status: response.status, body: await response.json() };
+    const data = await response.json();
+    if (path === 'auth' && response.ok) room = data.roomId || '';
+    return { status: response.status, body: data };
   };
 }
 function setup(t, codes = ["00123", "12345"]) {

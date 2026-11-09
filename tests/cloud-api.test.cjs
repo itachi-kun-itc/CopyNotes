@@ -13,18 +13,72 @@ function createDatabase() {
 
 function client(db) {
   let cookie = "";
+  let room = "";
   return async function request(path, method = "GET", body, extraHeaders = {}) {
     const { handleApi } = await api;
     const response = await handleApi(new Request(`https://copynotes.test/api/${path}`, {
-      method, headers: { Cookie: cookie, Origin: "https://copynotes.test", "Content-Type": "application/json", ...extraHeaders },
+      method, headers: { Cookie: cookie, Origin: "https://copynotes.test", "Content-Type": "application/json", "X-CopyNotes-Room": room, ...extraHeaders },
       ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     }), { DB: db });
     if (response.headers.has("set-cookie")) cookie = response.headers.get("set-cookie").split(";")[0];
-    return { status: response.status, headers: response.headers, body: await response.json() };
+    const data = await response.json();
+    if (path === 'auth' && response.ok) room = data.roomId || '';
+    return { status: response.status, headers: response.headers, body: data };
   };
 }
 const operation = (id, text, baseVersion = 0, deleted = false, mutationId = crypto.randomUUID()) => ({ id, text, baseVersion, deleted, mutationId });
 const sync = (operations, requestId = crypto.randomUUID()) => ({ requestId, operations });
+
+test('stale tabs cannot read, write or log out a different cookie room', async t => {
+  const db = createDatabase(); t.after(() => db.close());
+  const browser = client(db);
+  const first = await browser('auth', 'POST', { code: '00123' });
+  const draft = operation('private-draft', 'draft belonging to A');
+  await browser('auth', 'DELETE');
+  const second = await browser('auth', 'POST', { code: '99999' });
+  await browser('notes', 'POST', sync([operation('private-B', 'private B')]));
+  const before = db.prepare('SELECT COUNT(*) AS count FROM sync_events').first().count;
+  for (const room of [first.body.roomId, '']) {
+    const headers = { 'X-CopyNotes-Room': room };
+    const read = await browser('notes', 'GET', undefined, headers);
+    assert.equal(read.status, 401); assert.equal(read.body.notes, undefined);
+    assert.equal((await browser('notes', 'POST', sync([draft]), headers)).status, 401);
+    assert.equal((await browser('auth', 'DELETE', undefined, headers)).status, 401);
+  }
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM sync_events').first().count, before);
+  assert.deepEqual((await browser('notes')).body.notes.map(note => note.text), ['private B']);
+  assert.equal((await browser('auth')).body.roomId, second.body.roomId);
+  // Logging back into A can still send its retained draft to the correct room.
+  await browser('auth', 'POST', { code: '00123' });
+  assert.equal((await browser('notes', 'POST', sync([draft]))).status, 200);
+  assert.deepEqual((await browser('notes')).body.notes.map(note => note.text), [draft.text]);
+});
+
+test('large valid emoji backlogs drain in batches without blocking later notes', async t => {
+  require('../sharing.js');
+  const sharing = CopyNotesSharing;
+  const db = createDatabase(); t.after(() => db.close());
+  const browser = client(db); await browser('auth', 'POST', { code: '00123' });
+  let local = Array.from({ length: 200 }, () => sharing.draft('😀'.repeat(3000)));
+  local.push(sharing.draft('last note'));
+  const oversized = await browser('notes', 'POST', sync(sharing.operations(local).slice(0, 167)));
+  assert.equal(oversized.status, 413);
+  let requests = 0;
+  while (sharing.operations(local).length) {
+    const sent = sharing.batch(sharing.operations(local));
+    assert.ok(sent.length > 0);
+    const response = await browser('notes', 'POST', sync(sent));
+    assert.equal(response.status, 200);
+    assert.deepEqual(response.body.conflicts, []);
+    local = sharing.merge(local, response.body.notes, sent).notes;
+    assert.ok(++requests <= 3);
+  }
+  const result = (await browser('notes')).body.notes;
+  assert.equal(result.length, 201);
+  assert.equal(result.at(-1).text, 'last note');
+  assert.ok(result.slice(0, 200).every(note => note.text === '😀'.repeat(3000)));
+  assert.equal(requests, 2);
+});
 
 test("five ASCII digits including leading zeroes log in; other input is rejected", async t => {
   const db = createDatabase(); t.after(() => db.close());

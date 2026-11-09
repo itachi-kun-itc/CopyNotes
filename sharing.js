@@ -13,6 +13,21 @@ globalThis.CopyNotesSharing = (() => {
       return { id: note.id, text: deleted ? "" : note.text, baseVersion: note.version, deleted, mutationId: note.mutationId };
     });
   }
+  function batch(operations) {
+    const encoder = new TextEncoder();
+    // Include the JSON envelope and commas in the API's byte limit.
+    let bytes = encoder.encode(JSON.stringify({ requestId: '0'.repeat(36), operations: [] })).byteLength;
+    let length = 0;
+    const result = [];
+    for (const operation of operations) {
+      const size = encoder.encode(JSON.stringify(operation)).byteLength + (result.length ? 1 : 0);
+      if (result.length === 200 || length + operation.text.length > 1000000 || bytes + size > 2 * 1024 * 1024) break;
+      result.push(operation);
+      length += operation.text.length;
+      bytes += size;
+    }
+    return result;
+  }
   function sort(notes) {
     return notes.sort((a, b) => (a.version ? a.order : Infinity) - (b.version ? b.order : Infinity) || (a.position || 0) - (b.position || 0));
   }
@@ -75,5 +90,5 @@ globalThis.CopyNotesSharing = (() => {
       return [{ ...note, deleted: true, dirty: true, mutationId: id() }];
     });
   }
-  return Object.freeze({ draft, operations, sort, merge, update, remove, isBlank, compactBlank });
+  return Object.freeze({ draft, operations, batch, sort, merge, update, remove, isBlank, compactBlank });
 })();

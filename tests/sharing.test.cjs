@@ -6,6 +6,23 @@ const sharing = globalThis.CopyNotesSharing;
 const remote = (id, text, version = 1, order = 1, mutationId = crypto.randomUUID()) => ({ id, text, version, order, position: 0, syncedAt: 1, deleted: false, mutationId });
 const cache = note => sharing.merge([], [note]).notes[0];
 
+test('operation batches respect count, UTF-16 length and encoded JSON bytes', () => {
+  const operations = character => sharing.operations(Array.from({ length: 201 }, () => sharing.draft(character.repeat(3000))));
+  for (const character of ['a', 'あ', '😀', '\u0000']) {
+    const pending = operations(character);
+    const batch = sharing.batch(pending);
+    const body = JSON.stringify({ requestId: crypto.randomUUID(), operations: batch });
+    assert.ok(batch.length > 0 && batch.length <= 200);
+    assert.ok(batch.reduce((total, operation) => total + operation.text.length, 0) <= 1000000);
+    assert.ok(Buffer.byteLength(body) <= 2 * 1024 * 1024);
+    assert.deepEqual(batch, pending.slice(0, batch.length));
+    if (character === 'a') assert.equal(batch.length, 200);
+    if (character === '😀') assert.equal(batch.length, 166);
+    if (character === '\u0000') assert.ok(batch.length < 166, 'JSON escaping affects the byte limit');
+  }
+  assert.deepEqual(sharing.batch([]), []);
+});
+
 test("conflicts identify the preserved draft so the active input can retain focus and selection", () => {
   const original = remote("focused", "initial");
   const local = cache(original);

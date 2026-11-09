@@ -21,6 +21,7 @@ const files = new Map([
   ["/note-limits.js", ["note-limits.js", "text/javascript; charset=utf-8"]],
   ["/code-editor.js", ["code-editor.js", "text/javascript; charset=utf-8"]],
   ["/sharing.js", ["sharing.js", "text/javascript; charset=utf-8"]],
+  ["/device-storage.js", ["device-storage.js", "text/javascript; charset=utf-8"]],
   ["/auto-sync.js", ["auto-sync.js", "text/javascript; charset=utf-8"]],
   ["/touch-notes.js", ["touch-notes.js", "text/javascript; charset=utf-8"]],
   ["/workspace-tabs.js", ["workspace-tabs.js", "text/javascript; charset=utf-8"]],

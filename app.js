@@ -36,7 +36,6 @@
   }
 
   removeLegacyData();
-  const storageKey = "copynotes.notes.v1";
   const list = document.querySelector("#noteList");
   const template = document.querySelector("#noteTemplate");
   const status = document.querySelector("#status");
@@ -79,7 +78,11 @@
   const loginSubmit = document.querySelector('#loginSubmit');
   const logoutButton = document.querySelector('#logoutButton');
   const closeLogin = document.querySelector('#closeLogin');
-  let deviceNotes = loadNotes();
+  const deviceStore = CopyNotesDeviceStorage.create({
+    getItem: key => localStorage.getItem(key),
+    setItem: (key, value) => localStorage.setItem(key, value),
+  }, storageWarning);
+  let deviceNotes = deviceStore.load();
   let sharedNotes = [];
   let activeTab = 'device';
   let roomId = null;
@@ -108,7 +111,7 @@
   });
 
   function pendingOperations() {
-    return sharing.operations(sharedNotes.filter(note => note.version || note.deleted || note.pendingMutationId || !sharing.isBlank(note.text))).slice(0, 200);
+    return sharing.operations(sharedNotes.filter(note => note.version || note.deleted || note.pendingMutationId || !sharing.isBlank(note.text)));
   }
   function interactionActive() { return composingInputs.size > 0 || touch.active || removingCount > 0; }
   function releaseIdle() {
@@ -139,20 +142,16 @@
     announce("このブラウザでは入力内容を保存できません");
   }
 
-  function loadNotes() {
-    try {
-      const saved = JSON.parse(localStorage.getItem(storageKey) || "null");
-      if (Array.isArray(saved) && saved.every(note => typeof note === "string")) {
-        const compacted = saved.filter(note => !sharing.isBlank(note));
-        if (compacted.length !== saved.length) {
-          try { localStorage.setItem(storageKey, JSON.stringify(compacted)); } catch { storageWarning(); }
-        }
-        return compacted;
-      }
-    } catch {
-      storageWarning();
-    }
-    return [""];
+  function persistDevice(notes) {
+    const merged = deviceStore.save(notes);
+    deviceNotes = merged.notes;
+    if (activeTab === 'device' && JSON.stringify(notes) !== JSON.stringify(deviceNotes)) renderNotes(true, merged.preserved);
+  }
+
+  async function refreshDeviceNotes() {
+    await waitForIdle();
+    if (activeTab === 'device') saveNotes();
+    else persistDevice(deviceNotes);
   }
 
   function persistShared() {
@@ -175,9 +174,9 @@
 
   function saveNotes() {
     if (activeTab === 'device') {
-      deviceNotes = Array.from(list.querySelectorAll('.note-row:not(.is-removing) textarea'), input => input.value);
-      try { localStorage.setItem(storageKey, JSON.stringify(deviceNotes)); }
-      catch { storageWarning(); }
+      persistDevice(Array.from(list.querySelectorAll('.note-row:not(.is-removing)'), row => ({
+        id: row.dataset.noteId, text: row.querySelector('textarea').value,
+      })));
     } else if (authenticated) {
       const visible = new Map(Array.from(list.children).filter(row => !row.classList.contains('is-removing')).map(row => [row.dataset.noteId, row.querySelector('textarea').value]));
       sharedNotes = sharedNotes.filter(note => {
@@ -196,8 +195,7 @@
 
   function compactNotes() {
     saveNotes();
-    deviceNotes = deviceNotes.filter(note => !sharing.isBlank(note));
-    try { localStorage.setItem(storageKey, JSON.stringify(deviceNotes)); } catch { storageWarning(); }
+    persistDevice(deviceNotes.filter(note => !sharing.isBlank(note.text)));
     if (authenticated) {
       sharedNotes = sharing.compactBlank(sharedNotes, inFlightIds);
       persistShared();
@@ -260,9 +258,10 @@
     const scroller = document.querySelector('.notes-scroll');
     const scrollTop = scroller.scrollTop;
     cancelPress(); closeMenu();
-    if (restoreFocus && activeTab === 'shared' && authenticated) {
+    if (restoreFocus && (activeTab === 'device' || authenticated)) {
       const existing = new Map(Array.from(list.children, row => [row.dataset.noteId, row]));
-      sharedNotes.filter(note => !note.deleted).forEach((note, index) => {
+      const visible = activeTab === 'device' ? deviceNotes : sharedNotes.filter(note => !note.deleted);
+      visible.forEach((note, index) => {
         let row = existing.get(note.id);
         existing.delete(note.id);
         if (!row) row = addNote(note.text, note);
@@ -275,12 +274,12 @@
         }
         if (list.children[index] !== row) list.insertBefore(row, list.children[index] || null);
       });
-      existing.forEach(row => row.remove());
+      existing.forEach(row => { if (!row.classList.contains('is-removing')) row.remove(); });
       labelNotes();
     } else {
       for (const row of list.children) row.getAnimations?.().forEach(animation => animation.cancel());
       list.replaceChildren();
-      if (activeTab === 'device') deviceNotes.forEach(value => addNote(value));
+      if (activeTab === 'device') deviceNotes.forEach(note => addNote(note.text, note));
       else if (authenticated) sharedNotes.filter(note => !note.deleted).forEach(note => addNote(note.text, note));
     }
     updateWorkspace();
@@ -315,6 +314,11 @@
     (authenticated ? logoutButton : loginNumber).focus();
   }
 
+  function resetAuthentication() {
+    authenticated = false; roomId = null; sharedNotes = [];
+    if (activeTab === 'shared') renderNotes();
+  }
+
   async function request(path, method = 'GET', body) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 20000);
@@ -322,7 +326,9 @@
       const endpoint = crossOriginApi ? apiBase + '/api/' + path : new URL('api/' + path, document.baseURI).href;
       const response = await fetch(endpoint, {
         method, credentials: crossOriginApi ? 'omit' : 'same-origin', cache: 'no-store', signal: controller.signal,
-        headers: { 'Content-Type': 'application/json', ...(crossOriginApi && apiSession ? { Authorization: 'Bearer ' + apiSession } : {}) },
+        headers: { 'Content-Type': 'application/json',
+          ...(roomId && (path === 'notes' || path === 'auth' && method === 'DELETE') ? { 'X-CopyNotes-Room': roomId } : {}),
+          ...(crossOriginApi && apiSession ? { Authorization: 'Bearer ' + apiSession } : {}) },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
       if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('共有機能に接続できませんでした');
@@ -346,7 +352,7 @@
     if (!authenticated) return;
     saveNotes();
     const expectedRoom = roomId;
-    const sent = synchronize ? pendingOperations() : [];
+    const sent = synchronize ? sharing.batch(pendingOperations()) : [];
     sent.forEach(note => inFlightIds.add(note.id));
     if (sent.length) {
       const byId = new Map(sharedNotes.map(note => [note.id, note]));
@@ -375,10 +381,7 @@
       return true;
     } catch (error) {
       cloudMessage = error.message;
-      if (error.status === 401) {
-        authenticated = false; roomId = null; sharedNotes = [];
-        if (activeTab === 'shared') renderNotes();
-      }
+      if (error.status === 401) resetAuthentication();
       announce(error.message);
       return false;
     } finally {
@@ -448,7 +451,10 @@
       await request('auth', 'DELETE');
       authenticated = false; roomId = null; sharedNotes = []; cloudMessage = '';
       activeTab = 'device'; loginDialog.close(); renderNotes(); announce('ログアウトしました');
-    } catch (error) { loginError.textContent = error.message; }
+    } catch (error) {
+      if (error.status === 401) resetAuthentication();
+      loginError.textContent = error.message;
+    }
     finally { busy = false; updateWorkspace(); }
   });
 
@@ -507,7 +513,6 @@
 
   function labelNotes() {
     Array.from(list.children).forEach((row, index) => {
-      if (activeTab === 'device') row.dataset.noteId = 'device-' + (index + 1);
       row.querySelector("textarea").setAttribute("aria-label", `コピーするテキスト ${index + 1}`);
       row.querySelector(".copy-button").setAttribute("aria-label", `テキスト ${index + 1} をコピー`);
     });
@@ -627,7 +632,10 @@
     if (activeTab === 'shared') {
       if (!model) { model = sharing.draft(value); sharedNotes.push(model); }
       row.dataset.noteId = model.id;
-    } else row.dataset.noteId = 'device-' + number;
+    } else {
+      if (!model) { model = CopyNotesDeviceStorage.draft(value); deviceNotes.push(model); }
+      row.dataset.noteId = model.id;
+    }
     let copiedTimer;
     input.value = value;
     input.setAttribute("aria-haspopup", "menu");
@@ -711,7 +719,10 @@
   window.addEventListener('pageshow', event => { if (event.persisted) compactNotes(); scheduleResizeNotes(); autoSync.refresh(); });
   window.addEventListener('online', () => autoSync.refresh());
   window.addEventListener('offline', () => autoSync.pause());
-  window.addEventListener('focus', () => autoSync.refresh());
+  window.addEventListener('focus', () => { refreshDeviceNotes(); autoSync.refresh(); });
+  window.addEventListener('storage', event => {
+    if (event.key === CopyNotesDeviceStorage.key || event.key === null) refreshDeviceNotes();
+  });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {
       compactNotes(); composingInputs.clear(); releaseIdle(); autoSync.pause();
