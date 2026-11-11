@@ -22,6 +22,7 @@ globalThis.CopyNotesTheme = (() => {
     const theme = preference === 'system' ? media?.matches ? 'dark' : 'light' : preference;
     document.documentElement.dataset.theme = theme;
     document.querySelector('meta[name="theme-color"]')?.setAttribute('content', colors[theme]);
+    document.querySelector('meta[name="color-scheme"]')?.setAttribute('content', theme === 'dark' ? 'dark' : 'light');
     for (const listener of listeners) listener(preference);
   }
   function set(value) {

@@ -55,6 +55,16 @@ input, textarea { -webkit-user-select: text; user-select: text; }
 body {
   position: fixed; inset: 0; isolation: isolate; margin: 0; min-width: 280px;
   height: 100vh; height: 100dvh; overflow: hidden; overflow: clip; overscroll-behavior: none;
+  background-color: var(--page);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+/* Safari samples actual viewport-edge backgrounds for its status-bar tint. */
+.system-bar-background {
+  position: fixed; z-index: 1; top: 0; right: 0; left: 0;
+  height: max(8px, env(safe-area-inset-top, 0px));
+  background-color: var(--page);
+  pointer-events: none;
 }
 body::before {
   content: ""; position: fixed; z-index: -1; inset: 0; pointer-events: none;
