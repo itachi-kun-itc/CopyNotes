@@ -67,6 +67,7 @@
     </section>
   </main>
   <dialog id="loginDialog" class="login-dialog" aria-labelledby="loginTitle" aria-describedby="loginHelp">
+    <div class="dialog-system-bar" aria-hidden="true"></div>
     <form id="loginForm">
       <div class="login-heading"><h1 id="loginTitle">ログイン番号</h1><button id="closeLogin" class="dialog-close" type="button" aria-label="閉じる">×</button></div>
       <p id="loginHelp">発行済みの番号を入力してください。同じ番号の端末で共有できます。</p>
@@ -80,6 +81,7 @@
     </form>
   </dialog>
   <dialog id="settingsDialog" class="settings-dialog" aria-labelledby="settingsTitle">
+    <div class="dialog-system-bar" aria-hidden="true"></div>
     <div class="settings-heading"><h2 id="settingsTitle">設定</h2><button id="closeSettings" class="dialog-close" type="button" aria-label="設定を閉じる">×</button></div>
     <label class="settings-label" for="colorTheme">カラーテーマ</label>
     <select id="colorTheme" class="theme-select">

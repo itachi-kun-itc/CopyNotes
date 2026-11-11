@@ -492,9 +492,12 @@
   syncButton.addEventListener('click', () => { if (activeTab === 'shared') cloudAction(true); });
   colorTheme.value = CopyNotesTheme.get();
   CopyNotesTheme.subscribe(value => { colorTheme.value = value; });
-  colorTheme.addEventListener('change', () => {
+  function applySelectedTheme() {
+    if (colorTheme.value === CopyNotesTheme.get()) return;
     if (!CopyNotesTheme.set(colorTheme.value)) announce('このブラウザでは設定を保存できません');
-  });
+  }
+  colorTheme.addEventListener('input', applySelectedTheme);
+  colorTheme.addEventListener('change', applySelectedTheme);
   settingsButton.addEventListener('click', () => {
     openModal(settingsDialog);
   });

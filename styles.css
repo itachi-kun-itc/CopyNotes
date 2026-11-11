@@ -115,7 +115,7 @@ body {
   padding-right: env(safe-area-inset-right, 0px);
 }
 /* Safari samples actual viewport-edge backgrounds for its status-bar tint. */
-.system-bar-background {
+.system-bar-background, .dialog-system-bar {
   position: fixed; z-index: 1; top: 0; right: 0; left: 0;
   height: max(8px, var(--overlay-inset-top, 0px), env(safe-area-inset-top, 0px));
   background-color: var(--page);

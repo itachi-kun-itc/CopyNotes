@@ -232,6 +232,21 @@ test('refresh stays disabled on the device tab and is available only for authent
   }
 });
 
+test('theme input repaints the top edge before settings closes or selection change is committed', async () => {
+  const app = boot(); await app.ready;
+  const document = app.context.document;
+  document.querySelector('#settingsButton').click();
+  const field = document.querySelector('#colorTheme'); field.value = 'rose';
+  field.dispatchEvent({ type: 'input' });
+  assert.equal(document.querySelector('#settingsDialog').open, true);
+  assert.equal(document.dataset.theme, 'rose');
+  assert.equal(document.querySelector('.system-bar-background').style.backgroundColor, '#f8edf0');
+  assert.equal(JSON.parse(app.disk.get('copynotes.settings.v1')).theme, 'rose');
+  field.dispatchEvent({ type: 'change' });
+  assert.equal(document.querySelector('#settingsDialog').open, true);
+  assert.equal(document.querySelector('.system-bar-background').style.backgroundColor, '#f8edf0');
+});
+
 test('settings and account overlays preserve header spacing if iOS reduces its safe area', async () => {
   for (const trigger of ['#settingsButton', '#accountButton']) {
     const layout = { top: '59px', inset: '59px' };
