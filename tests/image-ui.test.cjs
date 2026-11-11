@@ -9,6 +9,8 @@ const vm = require('node:vm');
 class Element {
   constructor(tag = 'div', className = '') {
     Object.assign(this, { tagName: tag, className, children: [], dataset: {}, style: {}, attributes: {}, listeners: {}, value: '', files: [], scrollTop: 0 });
+    this.style.setProperty = (name, value) => { this.style[name] = value; };
+    this.style.removeProperty = name => { delete this.style[name]; };
     this.classList = { contains: name => this.className.split(' ').includes(name),
       add: name => { if (!this.classList.contains(name)) this.className += ' ' + name; },
       remove: name => { this.className = this.className.split(' ').filter(item => item !== name).join(' '); },
@@ -43,7 +45,7 @@ class Element {
   getClientRects() { return []; }
   getAnimations() { return []; }
   showModal() { this.open = true; }
-  close() { this.open = false; }
+  close() { const wasOpen = this.open; this.open = false; if (wasOpen) this.dispatchEvent({ type: 'close' }); }
   getBoundingClientRect() { return { left: 0, top: 0, right: 360, bottom: 300 }; }
   focus() { this.ownerDocument.activeElement = this; }
   get isConnected() { return this.connected || Boolean(this.parentElement?.isConnected); }
@@ -51,7 +53,7 @@ class Element {
 }
 
 function boot({ clipboard = true, formats = ['image/png', 'text/plain'], indexedDB, authenticated = false, savedDisk,
-  origin = 'http://localhost', sessionDisk = new Map(), apiFetch, config } = {}) {
+  origin = 'http://localhost', sessionDisk = new Map(), apiFetch, config, layout = { top: '32px', inset: '0px' } } = {}) {
   const document = new Element('document'); document.connected = true; document.ownerDocument = document;
   document.visibilityState = 'hidden'; document.baseURI = origin + '/'; document.body = document; document.documentElement = document;
   document.createElement = tag => { const element = new Element(tag); element.ownerDocument = document; return element; };
@@ -60,7 +62,7 @@ function boot({ clipboard = true, formats = ['image/png', 'text/plain'], indexed
   for (const match of html.matchAll(/<([a-z][a-z0-9]*)\b[^>]*\bid="([^"]+)"/g)) {
     const element = document.createElement(match[1]); element.id = match[2]; nodes.set('#' + element.id, element); document.append(element);
   }
-  for (const name of ['notes', 'notes-scroll', 'workspace-tabs']) { const element = document.createElement('div'); element.className = name; nodes.set('.' + name, element); document.append(element); }
+  for (const name of ['notes', 'notes-scroll', 'workspace-tabs', 'system-bar-background']) { const element = document.createElement('div'); element.className = name; nodes.set('.' + name, element); document.append(element); }
   document.querySelector = selector => nodes.get(selector) || null;
   nodes.get('#noteTemplate').content = { firstElementChild: { cloneNode() {
     const row = document.createElement('div'); row.className = 'note-row';
@@ -69,7 +71,7 @@ function boot({ clipboard = true, formats = ['image/png', 'text/plain'], indexed
     }
     return row;
   } } };
-  const disk = savedDisk || new Map(), downloads = [], copiedImages = [], requests = [];
+  const disk = savedDisk || new Map(), downloads = [], copiedImages = [], requests = [], frames = [];
   let selectTab;
   const context = vm.createContext({ document, window: new Element('window'), crypto, URL, Blob, atob, Uint8Array,
     navigator: { onLine: true, clipboard: clipboard ? { write: async () => {} } : undefined }, location: { origin },
@@ -77,7 +79,11 @@ function boot({ clipboard = true, formats = ['image/png', 'text/plain'], indexed
     indexedDB,
     localStorage: { get length() { return disk.size; }, key: index => [...disk.keys()][index], getItem: key => disk.get(key) ?? null, setItem: (key, value) => disk.set(key, value) },
     sessionStorage: { getItem: key => sessionDisk.get(key) ?? null, setItem: (key, value) => sessionDisk.set(key, value), removeItem: key => sessionDisk.delete(key) },
-    setTimeout: (callback, delay) => { if (!delay) queueMicrotask(callback); return 1; }, clearTimeout() {}, requestAnimationFrame: () => 1,
+    setTimeout: (callback, delay) => { if (!delay) queueMicrotask(callback); return 1; }, clearTimeout() {}, requestAnimationFrame: callback => { frames.push(callback); return frames.length; },
+    getComputedStyle: element => ({
+      paddingTop: Math.max(parseFloat(layout.top), parseFloat(document.style['--overlay-notes-top']) || 0) + 'px',
+      height: Math.max(8, parseFloat(layout.inset), parseFloat(document.style['--overlay-inset-top']) || 0) + 'px',
+    }),
     AbortController, fetch: async (url, options) => { requests.push({ url, options });
       if (apiFetch) return apiFetch(url, options);
       return { ok: true, headers: { get: () => 'application/json' }, json: async () => String(url).endsWith('/notes') ? { notes: [] } : { authenticated, roomId: authenticated ? 'room' : null } }; },
@@ -93,7 +99,8 @@ function boot({ clipboard = true, formats = ['image/png', 'text/plain'], indexed
   context.CopyNotesImages = { ...context.CopyNotesImages, prepare: async file => file.src, copy: async (text, sources) => copiedImages.push([...sources]), download: async sources => downloads.push([...sources]) };
   const ready = vm.runInContext(fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8'), context);
   const list = nodes.get('#noteList');
-  return { ready, tab: index => selectTab(index), row: () => list.children[0], add: () => nodes.get('#addNote').click(), list, disk, sessionDisk, downloads, copiedImages, context, requests };
+  return { ready, tab: index => selectTab(index), row: () => list.children[0], add: () => nodes.get('#addNote').click(), list, disk, sessionDisk, downloads, copiedImages, context, requests,
+    flushFrames: () => { for (const callback of frames.splice(0)) callback(); } };
 }
 
 const photo = { type: 'image/png', src: 'data:image/png;base64,aGVsbG8=' };
@@ -223,6 +230,48 @@ test('refresh stays disabled on the device tab and is available only for authent
     app.tab(1); assert.equal(button.disabled, !authenticated);
     app.tab(0); assert.equal(button.disabled, true);
   }
+});
+
+test('settings and account overlays preserve header spacing if iOS reduces its safe area', async () => {
+  for (const trigger of ['#settingsButton', '#accountButton']) {
+    const layout = { top: '59px', inset: '59px' };
+    const app = boot({ layout }); await app.ready; await new Promise(setImmediate);
+    const document = app.context.document;
+    document.querySelector(trigger).click();
+    assert.equal(document.style['--overlay-notes-top'], '59px');
+    assert.equal(document.style['--overlay-inset-top'], '59px');
+    layout.top = '20px'; layout.inset = '0px';
+    assert.equal(app.context.getComputedStyle(document.querySelector('.notes')).paddingTop, '59px');
+    assert.equal(app.context.getComputedStyle(document.querySelector('.system-bar-background')).height, '59px');
+    if (trigger === '#settingsButton') {
+      const field = document.querySelector('#colorTheme'); field.value = 'navy'; field.dispatchEvent({ type: 'change' });
+      assert.equal(document.style['--overlay-notes-top'], '59px');
+      assert.equal(document.dataset.theme, 'navy');
+    }
+    // Native Escape also closes via the dialog's close event.
+    const dialog = document.querySelector(trigger === '#settingsButton' ? '#settingsDialog' : '#loginDialog');
+    dialog.close();
+    assert.equal(document.style['--overlay-notes-top'], '59px', 'release waits for the next layout frame');
+    layout.top = '59px'; layout.inset = '59px'; app.flushFrames();
+    assert.equal(document.style['--overlay-notes-top'], undefined);
+    assert.equal(document.style['--overlay-inset-top'], undefined);
+    assert.equal(app.context.getComputedStyle(document.querySelector('.notes')).paddingTop, '59px');
+  }
+});
+
+test('closing one overlay cannot release another overlay spacing, including a failed open', async () => {
+  const app = boot({ layout: { top: '59px', inset: '59px' } }); await app.ready; await new Promise(setImmediate);
+  const document = app.context.document;
+  document.querySelector('#settingsButton').click();
+  document.querySelector('#closeSettings').click();
+  document.querySelector('#accountButton').click(); app.flushFrames();
+  assert.equal(document.style['--overlay-notes-top'], '59px');
+  document.querySelector('#loginDialog').close(); app.flushFrames();
+  assert.equal(document.style['--overlay-notes-top'], undefined);
+  document.querySelector('#settingsDialog').showModal = () => { throw new Error('cannot open'); };
+  assert.throws(() => document.querySelector('#settingsButton').click(), /cannot open/);
+  assert.equal(document.style['--overlay-notes-top'], undefined);
+  assert.equal(document.style['--overlay-inset-top'], undefined);
 });
 
 async function until(predicate) {

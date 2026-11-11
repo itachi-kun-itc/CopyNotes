@@ -97,6 +97,28 @@
   const loginSubmit = document.querySelector('#loginSubmit');
   const logoutButton = document.querySelector('#logoutButton');
   const closeLogin = document.querySelector('#closeLogin');
+  const modalDialogs = [loginDialog, settingsDialog];
+  function releaseModalLayout() {
+    if (modalDialogs.some(dialog => dialog.open)) return;
+    document.documentElement.style.removeProperty('--overlay-notes-top');
+    document.documentElement.style.removeProperty('--overlay-inset-top');
+  }
+  function openModal(dialog) {
+    if (dialog.open) return;
+    if (!modalDialogs.some(item => item.open)) {
+      // iOS can change its viewport insets when promoting a modal to the top
+      // layer. Preserve the underlying header's pre-modal spacing.
+      const rootStyle = document.documentElement.style;
+      rootStyle.setProperty('--overlay-notes-top', getComputedStyle(document.querySelector('.notes')).paddingTop);
+      rootStyle.setProperty('--overlay-inset-top', getComputedStyle(document.querySelector('.system-bar-background')).height);
+    }
+    try { dialog.showModal(); }
+    catch (error) { releaseModalLayout(); throw error; }
+  }
+  for (const dialog of modalDialogs) {
+    // Covers close buttons, backdrop clicks, Escape and successful login/logout.
+    dialog.addEventListener('close', () => requestAnimationFrame(releaseModalLayout));
+  }
   const deviceStore = CopyNotesDeviceStorage.create(noteStorage, storageWarning);
   let deviceNotes = deviceStore.load();
   let sharedNotes = [];
@@ -341,7 +363,7 @@
     if (busy) return;
     loginError.textContent = '';
     loginNumber.value = '';
-    if (!loginDialog.open) loginDialog.showModal();
+    openModal(loginDialog);
     (authenticated ? logoutButton : loginNumber).focus();
   }
 
@@ -474,7 +496,7 @@
     if (!CopyNotesTheme.set(colorTheme.value)) announce('このブラウザでは設定を保存できません');
   });
   settingsButton.addEventListener('click', () => {
-    if (!settingsDialog.open) settingsDialog.showModal();
+    openModal(settingsDialog);
   });
   closeSettings.addEventListener('click', () => settingsDialog.close());
   settingsDialog.addEventListener('click', event => {
