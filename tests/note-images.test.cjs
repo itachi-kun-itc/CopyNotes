@@ -11,9 +11,9 @@ const third = 'data:image/png;base64,dGhpcmQ=';
 
 test('image validation permits one raster image and rejects unsafe URLs, excess images and oversized payloads', () => {
   for (const value of [undefined, [], [png]]) assert.equal(images.valid(value), true);
-  const boundary = 'data:image/png;base64,' + 'A'.repeat(4 * Math.ceil(images.maxBytes / 3));
+  const boundary = 'data:image/png;base64,' + Buffer.alloc(images.maxBytes).toString('base64');
   assert.equal(images.valid([boundary]), true);
-  for (const value of [null, 'image', [png, png], ['https://example.com/p.png'], ['data:image/svg+xml;base64,PHN2Zz4='], ['data:image/png;base64,'], ['data:image/png;base64,%%=='], [boundary + 'AAAA']]) assert.equal(images.valid(value), false);
+  for (const value of [null, 'image', [png, png], ['https://example.com/p.png'], ['data:image/svg+xml;base64,PHN2Zz4='], ['data:image/png;base64,'], ['data:image/png;base64,%%=='], [boundary + 'AAAA'], ['data:image/png;base64,' + Buffer.alloc(images.maxBytes + 1).toString('base64')]]) assert.equal(images.valid(value), false);
   assert.equal(images.isBlank({ text: ' \n', images: [png] }), false);
 });
 
@@ -79,6 +79,14 @@ test('image-only device notes survive reload and simultaneous image edits preser
   assert.deepEqual(device.create(disk).load().map(note => note.images), [[other], [third]]);
 });
 
+test('original image data at the size limit survives device storage and reload', () => {
+  const src = 'data:image/png;base64,' + Buffer.alloc(images.maxBytes, 123).toString('base64');
+  const values = new Map();
+  const disk = { getItem: key => values.get(key) ?? null, setItem: (key, value) => values.set(key, value) };
+  device.create(disk).save([device.draft('', [src])]);
+  assert.equal(device.create(disk).load()[0].images[0], src);
+});
+
 test('image-only shared notes sync, survive blank cleanup and preserve images through conflicts and in-flight edits', () => {
   const draft = sharing.draft('', [png]);
   assert.equal(sharing.operations([draft])[0].deleted, false);
@@ -95,10 +103,10 @@ test('image-only shared notes sync, survive blank cleanup and preserve images th
   assert.deepEqual(conflict.notes.find(note => !note.version).images, [third]);
   sharing.update(local, '', false, [other]); assert.equal(local.dirty, false);
   sharing.update(local, '', false, []); assert.equal(sharing.operations([local])[0].deleted, true);
-  const big = 'data:image/png;base64,' + 'A'.repeat(4 * Math.ceil(images.maxBytes / 3));
+  const big = 'data:image/png;base64,' + Buffer.alloc(images.maxBytes).toString('base64');
   const operations = sharing.operations(Array.from({ length: 8 }, () => sharing.draft('', [big])));
   const batch = sharing.batch(operations);
-  assert.equal(batch.length, 7);
+  assert.equal(batch.length, 1);
   assert.ok(Buffer.byteLength(JSON.stringify({ requestId: crypto.randomUUID(), operations: batch })) <= 2 * 1024 * 1024);
 });
 
@@ -121,9 +129,10 @@ test('API saves image-only notes, enforces the limit atomically, and removes the
   }
   const send = operations => request('notes', { requestId: crypto.randomUUID(), operations });
   await request('auth', { code: '00123' });
-  const draft = sharing.draft('', [png]);
+  const original = 'data:image/png;base64,' + Buffer.alloc(images.maxBytes, 123).toString('base64');
+  const draft = sharing.draft('', [original]);
   assert.equal((await send(sharing.operations([draft]))).status, 200);
-  assert.deepEqual((await request('notes')).notes[0].images, [png]);
+  assert.deepEqual((await request('notes')).notes[0].images, [original]);
   const note = sharing.merge([], (await request('notes')).notes).notes[0];
   const invalid = { ...sharing.operations([draft])[0], images: [png, png] };
   const next = sharing.draft('must not be saved');
@@ -131,6 +140,9 @@ test('API saves image-only notes, enforces the limit atomically, and removes the
   assert.equal((await request('notes')).notes.length, 1);
   assert.equal((await send([...sharing.operations([next]), { ...invalid, images: [png], text: 'mixed' }])).status, 400);
   assert.equal((await request('notes')).notes.length, 1);
+  const oversized = 'data:image/png;base64,' + Buffer.alloc(images.maxBytes + 1).toString('base64');
+  assert.equal((await send([{ ...invalid, images: [oversized] }])).status, 400);
+  assert.deepEqual((await request('notes')).notes[0].images, [original]);
   sharing.update(note, '', false, []);
   const deleted = await send(sharing.operations([note]));
   assert.equal(deleted.notes[0].deleted, true);

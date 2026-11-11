@@ -2,14 +2,15 @@
 
 globalThis.CopyNotesImages = (() => {
   const maxImages = 1;
-  // Encoded images fit comfortably in a single sync request and DB row.
-  const maxBytes = 192 * 1024;
+  // Base64 plus the note envelope must fit in the 2 MiB sync request.
+  const maxBytes = 1024 * 1024;
   const maxEncodedLength = 4 * Math.ceil(maxBytes / 3);
   const valid = (images, limit = maxImages) => images === undefined || Array.isArray(images) && images.length <= limit
     && images.every(src => {
       if (typeof src !== 'string' || src.length > maxEncodedLength + 24 || !/^data:image\/(?:png|jpeg|webp);base64,/.test(src)) return false;
       const data = src.slice(src.indexOf(',') + 1);
-      return data.length > 0 && data.length <= maxEncodedLength && data.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(data);
+      const bytes = data.length / 4 * 3 - (data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0);
+      return data.length > 0 && data.length <= maxEncodedLength && bytes <= maxBytes && data.length % 4 === 0 && /^[A-Za-z0-9+/]*={0,2}$/.test(data);
     });
   const equal = (a = [], b = []) => a.length === b.length && a.every((src, index) => src === b[index]);
   const isBlank = note => !note.text.trim() && !note.images?.length;
@@ -42,25 +43,33 @@ globalThis.CopyNotesImages = (() => {
     });
   }
   async function prepare(file) {
+    const tooLarge = () => new Error('画質を保つため、1MiB以下の画像を添付してください');
+    if (/^image\/(?:png|jpeg|webp)$/.test(file.type) && file.size > maxBytes) throw tooLarge();
+    const src = await read(file);
     const image = new Image();
-    image.src = await read(file);
+    image.src = src;
     try { await image.decode(); } catch { throw new Error('この画像は読み込めませんでした'); }
+    // Keep supported files byte-for-byte, including their original resolution.
+    if (valid([src])) return src;
+    if (/^data:image\/(?:png|jpeg|webp);base64,/.test(src)) throw tooLarge();
+    // Other browser-readable formats use lossless PNG at their natural size.
     const canvas = document.createElement('canvas');
-    let scale = Math.min(1, 1600 / Math.max(image.naturalWidth, image.naturalHeight));
-    for (let attempt = 0; attempt < 7; attempt++, scale *= .75) {
-      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
-      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
-      canvas.getContext('2d').drawImage(image, 0, 0, canvas.width, canvas.height);
-      const png = canvas.toDataURL('image/png');
-      if (png.length <= maxEncodedLength + 22) return png;
-      const compressed = canvas.toDataURL('image/webp', .82);
-      if (compressed.length <= maxEncodedLength + 23) return compressed;
-    }
-    throw new Error('画像が大きすぎます。小さい画像をお試しください');
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    canvas.getContext('2d').drawImage(image, 0, 0);
+    const png = canvas.toDataURL('image/png');
+    if (valid([png])) return png;
+    throw tooLarge();
+  }
+  function toBlob(src) {
+    const [header, data] = src.split(',');
+    const bytes = Uint8Array.from(atob(data), char => char.charCodeAt(0));
+    return new Blob([bytes], { type: header.slice(5, header.indexOf(';')) });
   }
   async function toPng(sources) {
     const images = [...sources];
     if (!images.length || !valid(images)) throw new Error('画像を確認してください');
+    if (images[0].startsWith('data:image/png;')) return toBlob(images[0]);
     const decoded = await Promise.all(images.map(async src => {
       const image = new Image(); image.src = src; await image.decode(); return image;
     }));
@@ -93,9 +102,12 @@ globalThis.CopyNotesImages = (() => {
     await navigator.clipboard.write([new ClipboardItem(data)]);
   }
   async function download(sources) {
-    const blob = await toPng(sources);
+    const images = [...sources];
+    if (!images.length || !valid(images)) throw new Error('画像を確認してください');
+    const blob = toBlob(images[0]);
     const url = URL.createObjectURL(blob);
-    const link = document.createElement('a'); link.href = url; link.download = 'copynotes-image.png';
+    const extension = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/webp': 'webp' }[blob.type];
+    const link = document.createElement('a'); link.href = url; link.download = 'copynotes-image.' + extension;
     document.body.append(link); link.click(); link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
