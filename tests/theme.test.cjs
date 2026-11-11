@@ -8,7 +8,11 @@ const source = fs.readFileSync(path.join(__dirname, '../theme.js'), 'utf8');
 const key = 'copynotes.settings.v1';
 function boot({ disk = new Map(), dark = false, blocked = false } = {}) {
   const root = { dataset: {}, style: {} }, body = { style: {} };
-  const pageBar = { style: {} };
+  const edgePaints = [];
+  const pageBar = { style: {}, getBoundingClientRect() {
+    edgePaints.push({ theme: root.dataset.theme, edge: this.style.backgroundColor, page: body.style.backgroundColor, meta: meta.content });
+    return { height: 16 };
+  } };
   const meta = { setAttribute(name, value) { this[name] = value; } };
   const attached = [];
   meta.parentNode = { appendChild: node => attached.push(node) };
@@ -26,7 +30,7 @@ function boot({ disk = new Map(), dark = false, blocked = false } = {}) {
     fetch() { throw new Error('Theme settings must never use the network'); },
   });
   vm.runInContext(source, context);
-  return { theme: context.CopyNotesTheme, root, body, document, meta, scheme, disk, media, events, documentEvents, attached, pageBar };
+  return { theme: context.CopyNotesTheme, root, body, document, meta, scheme, disk, media, events, documentEvents, attached, pageBar, edgePaints };
 }
 
 test('theme choices apply immediately and survive reload without changing notes or shared drafts', () => {
@@ -43,10 +47,12 @@ test('theme choices apply immediately and survive reload without changing notes 
     assert.equal(b.root.style.backgroundColor, colors[choice]);
     assert.equal(b.body.style.backgroundColor, colors[choice]);
     assert.equal(b.pageBar.style.backgroundColor, colors[choice]);
+    assert.deepEqual(b.edgePaints.at(-1), { theme: choice, edge: colors[choice], page: colors[choice], meta: colors[choice] });
     const reloaded = boot({ disk });
     assert.equal(reloaded.theme.get(), choice); assert.equal(reloaded.root.dataset.theme, choice);
   }
   assert.equal(b.meta.content, '#121d30');
+  assert.equal(b.attached.length, 0, 'changing themes never reinserts the native theme tag');
   assert.deepEqual([...disk].filter(([name]) => name !== key), original);
   assert.equal(boot().theme.get(), 'light', 'another device/browser keeps its own preference');
 });
@@ -61,7 +67,7 @@ test('native colors reapply after Home Screen resume and after body creation', (
   b.document.body = null; b.theme.set('mint');
   b.document.body = { style: {} }; b.documentEvents.get('DOMContentLoaded')();
   assert.equal(b.document.body.style.backgroundColor, '#eaf4ee');
-  assert.ok(b.attached.every(node => node === b.meta));
+  assert.equal(b.attached.length, 0);
 });
 
 test('system choice follows OS changes while explicit choices remain fixed', () => {

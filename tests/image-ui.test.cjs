@@ -58,7 +58,7 @@ class Element {
 }
 
 function boot({ clipboard = true, formats = ['image/png', 'text/plain'], indexedDB, authenticated = false, savedDisk,
-  origin = 'http://localhost', sessionDisk = new Map(), apiFetch, config, layout = { top: '32px', inset: '0px' } } = {}) {
+  origin = 'http://localhost', sessionDisk = new Map(), apiFetch, config, layout = { top: '48px', inset: '0px' } } = {}) {
   const document = new Element('document'); document.connected = true; document.ownerDocument = document;
   document.visibilityState = 'hidden'; document.baseURI = origin + '/'; document.body = document; document.documentElement = document;
   document.createElement = tag => { const element = new Element(tag); element.ownerDocument = document; return element; };
@@ -255,39 +255,39 @@ test('theme input repaints the top edge before settings closes or selection chan
 
 test('settings and account overlays preserve header spacing if iOS reduces its safe area', async () => {
   for (const trigger of ['#settingsButton', '#accountButton']) {
-    const layout = { top: '59px', inset: '59px' };
+    const layout = { top: '79px', inset: '59px' };
     const app = boot({ layout }); await app.ready; await new Promise(setImmediate);
     const document = app.context.document;
     document.querySelector(trigger).click();
-    assert.equal(document.style['--overlay-notes-top'], '59px');
+    assert.equal(document.style['--overlay-notes-top'], '79px');
     assert.equal(document.style['--overlay-inset-top'], '59px');
-    layout.top = '20px'; layout.inset = '0px';
-    assert.equal(app.context.getComputedStyle(document.querySelector('.notes')).paddingTop, '59px');
+    layout.top = '36px'; layout.inset = '0px';
+    assert.equal(app.context.getComputedStyle(document.querySelector('.notes')).paddingTop, '79px');
     assert.equal(app.context.getComputedStyle(document.querySelector('.system-bar-background')).height, '59px');
     if (trigger === '#settingsButton') {
       const field = document.querySelector('#colorTheme'); field.value = 'navy'; field.dispatchEvent({ type: 'change' });
-      assert.equal(document.style['--overlay-notes-top'], '59px');
+      assert.equal(document.style['--overlay-notes-top'], '79px');
       assert.equal(document.dataset.theme, 'navy');
     }
     // The page handles Escape without entering the native modal compositor.
     const dialog = document.querySelector(trigger === '#settingsButton' ? '#settingsDialog' : '#loginDialog');
     document.dispatchEvent({ type: 'keydown', key: 'Escape' });
     assert.equal(dialog.open, false);
-    assert.equal(document.style['--overlay-notes-top'], '59px', 'release waits for the next layout frame');
-    layout.top = '59px'; layout.inset = '59px'; app.flushFrames();
+    assert.equal(document.style['--overlay-notes-top'], '79px', 'release waits for the next layout frame');
+    layout.top = '79px'; layout.inset = '59px'; app.flushFrames();
     assert.equal(document.style['--overlay-notes-top'], undefined);
     assert.equal(document.style['--overlay-inset-top'], undefined);
-    assert.equal(app.context.getComputedStyle(document.querySelector('.notes')).paddingTop, '59px');
+    assert.equal(app.context.getComputedStyle(document.querySelector('.notes')).paddingTop, '79px');
   }
 });
 
 test('closing one overlay cannot release another overlay spacing, including a failed open', async () => {
-  const app = boot({ layout: { top: '59px', inset: '59px' } }); await app.ready; await new Promise(setImmediate);
+  const app = boot({ layout: { top: '79px', inset: '59px' } }); await app.ready; await new Promise(setImmediate);
   const document = app.context.document;
   document.querySelector('#settingsButton').click();
   document.querySelector('#closeSettings').click();
   document.querySelector('#accountButton').click(); app.flushFrames();
-  assert.equal(document.style['--overlay-notes-top'], '59px');
+  assert.equal(document.style['--overlay-notes-top'], '79px');
   document.querySelector('#loginDialog').close(); app.flushFrames();
   assert.equal(document.style['--overlay-notes-top'], undefined);
   document.querySelector('#settingsDialog').show = () => { throw new Error('cannot open'); };

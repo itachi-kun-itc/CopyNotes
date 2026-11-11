@@ -29,13 +29,16 @@ globalThis.CopyNotesTheme = (() => {
     root.style.backgroundColor = colors[theme];
     root.style.colorScheme = scheme;
     if (document.body) document.body.style.backgroundColor = colors[theme];
-    for (const layer of document.querySelectorAll?.('.system-bar-background') || []) layer.style.backgroundColor = colors[theme];
+    const edgeLayers = document.querySelectorAll?.('.system-bar-background') || [];
+    for (const layer of edgeLayers) layer.style.backgroundColor = colors[theme];
     const themeColor = document.querySelector('meta[name="theme-color"]');
     themeColor?.setAttribute('content', colors[theme]);
     document.querySelector('meta[name="color-scheme"]')?.setAttribute('content', scheme);
-    // Reattach after changing a color: installed iOS apps can retain the old
-    // native tint when only the content attribute of an existing tag changes.
-    if (themeColor?.parentNode) themeColor.parentNode.appendChild(themeColor);
+    // Flush all palette writes together in the selection event, before storage
+    // or subscriber work. This makes the solid edge available to WebKit's next
+    // chrome sample without waiting for another UI event. Keep the meta tag in
+    // place so a second native theme update is not requested by reinsertion.
+    edgeLayers[0]?.getBoundingClientRect();
     for (const listener of listeners) listener(preference);
   }
   function set(value) {
