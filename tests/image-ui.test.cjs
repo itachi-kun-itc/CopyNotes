@@ -42,14 +42,18 @@ class Element {
   removeAttribute(name) { delete this.attributes[name]; }
   getClientRects() { return []; }
   getAnimations() { return []; }
+  showModal() { this.open = true; }
+  close() { this.open = false; }
+  getBoundingClientRect() { return { left: 0, top: 0, right: 360, bottom: 300 }; }
   focus() { this.ownerDocument.activeElement = this; }
   get isConnected() { return this.connected || Boolean(this.parentElement?.isConnected); }
   click() { if (!this.disabled) this.dispatchEvent({ type: 'click' }); }
 }
 
-function boot({ clipboard = true, formats = ['image/png', 'text/plain'], indexedDB, authenticated = false, savedDisk } = {}) {
+function boot({ clipboard = true, formats = ['image/png', 'text/plain'], indexedDB, authenticated = false, savedDisk,
+  origin = 'http://localhost', sessionDisk = new Map(), apiFetch, config } = {}) {
   const document = new Element('document'); document.connected = true; document.ownerDocument = document;
-  document.visibilityState = 'hidden'; document.baseURI = 'http://localhost/'; document.body = document;
+  document.visibilityState = 'hidden'; document.baseURI = origin + '/'; document.body = document; document.documentElement = document;
   document.createElement = tag => { const element = new Element(tag); element.ownerDocument = document; return element; };
   const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
   const nodes = new Map();
@@ -65,15 +69,18 @@ function boot({ clipboard = true, formats = ['image/png', 'text/plain'], indexed
     }
     return row;
   } } };
-  const disk = savedDisk || new Map(), downloads = [], copiedImages = [];
+  const disk = savedDisk || new Map(), downloads = [], copiedImages = [], requests = [];
   let selectTab;
   const context = vm.createContext({ document, window: new Element('window'), crypto, URL, Blob, atob, Uint8Array,
-    navigator: { onLine: true, clipboard: clipboard ? { write: async () => {} } : undefined }, location: { origin: 'http://localhost' },
+    navigator: { onLine: true, clipboard: clipboard ? { write: async () => {} } : undefined }, location: { origin },
     ClipboardItem: class { constructor(data) { this.data = data; } static supports(type) { return formats.includes(type); } },
     indexedDB,
     localStorage: { get length() { return disk.size; }, key: index => [...disk.keys()][index], getItem: key => disk.get(key) ?? null, setItem: (key, value) => disk.set(key, value) },
+    sessionStorage: { getItem: key => sessionDisk.get(key) ?? null, setItem: (key, value) => sessionDisk.set(key, value), removeItem: key => sessionDisk.delete(key) },
     setTimeout: (callback, delay) => { if (!delay) queueMicrotask(callback); return 1; }, clearTimeout() {}, requestAnimationFrame: () => 1,
-    AbortController, fetch: async url => ({ ok: true, headers: { get: () => 'application/json' }, json: async () => String(url).endsWith('/notes') ? { notes: [] } : { authenticated, roomId: authenticated ? 'room' : null } }),
+    AbortController, fetch: async (url, options) => { requests.push({ url, options });
+      if (apiFetch) return apiFetch(url, options);
+      return { ok: true, headers: { get: () => 'application/json' }, json: async () => String(url).endsWith('/notes') ? { notes: [] } : { authenticated, roomId: authenticated ? 'room' : null } }; },
     CopyNotesTouch: { attach: () => ({ cancel() {}, active: false }) },
     CopyNotesAutoSync: { create: () => ({ changed() {}, refresh() {}, pause() {} }) },
     CopyNotesTabs: { attach: (element, options) => { selectTab = options.onChange; return { sync() {} }; } },
@@ -81,11 +88,12 @@ function boot({ clipboard = true, formats = ['image/png', 'text/plain'], indexed
     CopyNotesLinks: { find: () => [], render: () => document.createElement('span') },
     CopyNotesLimits: { attach() {} }, CopyNotesEditor: { attach() {} },
   });
-  for (const file of ['note-images.js', 'attachment-storage.js', 'image-transfer.js', 'sharing.js', 'device-storage.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'), context);
+  for (const file of ['app-config.js', 'theme.js', 'note-images.js', 'attachment-storage.js', 'image-transfer.js', 'sharing.js', 'device-storage.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'), context);
+  if (config) context.CopyNotesConfig = config;
   context.CopyNotesImages = { ...context.CopyNotesImages, prepare: async file => file.src, copy: async (text, sources) => copiedImages.push([...sources]), download: async sources => downloads.push([...sources]) };
   const ready = vm.runInContext(fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8'), context);
   const list = nodes.get('#noteList');
-  return { ready, tab: index => selectTab(index), row: () => list.children[0], add: () => nodes.get('#addNote').click(), list, disk, downloads, copiedImages, context };
+  return { ready, tab: index => selectTab(index), row: () => list.children[0], add: () => nodes.get('#addNote').click(), list, disk, sessionDisk, downloads, copiedImages, context, requests };
 }
 
 const photo = { type: 'image/png', src: 'data:image/png;base64,aGVsbG8=' };
@@ -174,4 +182,133 @@ test('a full-size attachment is durable before it appears and reloads with the s
   assert.ok(app.disk.get(app.context.CopyNotesDeviceStorage.key).length < 300);
   const reloaded = boot({ indexedDB, savedDisk: app.disk }); await reloaded.ready;
   assert.equal(reloaded.row().noteImages[0], src);
+});
+
+test('settings replace notices, persist themes locally and never send a shared update', async () => {
+  const app = boot({ authenticated: true }); await app.ready; await new Promise(setImmediate);
+  const document = app.context.document;
+  assert.equal(document.querySelector('#noticeButton'), null);
+  assert.equal(document.querySelector('#settingsScope'), null);
+  assert.equal(document.querySelector('#settingsStatus'), null);
+  document.querySelector('#settingsButton').click();
+  assert.equal(document.querySelector('#settingsDialog').open, true);
+  const before = app.requests.length;
+  const beforeStatus = document.querySelector('#status').textContent;
+  const field = document.querySelector('#colorTheme'); field.value = 'dark'; field.dispatchEvent({ type: 'change' });
+  await new Promise(setImmediate);
+  assert.equal(document.dataset.theme, 'dark');
+  assert.equal(app.requests.length, before);
+  assert.equal(document.querySelector('#status').textContent, beforeStatus, 'successful theme changes are silent');
+  assert.equal(JSON.parse(app.disk.get('copynotes.settings.v1')).theme, 'dark');
+  assert.equal(app.disk.get('copynotes.shared.v4.room').includes('theme'), false);
+  app.tab(1); app.tab(0); assert.equal(field.value, 'dark');
+  document.querySelector('#closeSettings').click(); assert.equal(document.querySelector('#settingsDialog').open, false);
+  document.querySelector('#settingsButton').click();
+  document.querySelector('#settingsDialog').dispatchEvent({ type: 'click', clientX: 400, clientY: 400 });
+  assert.equal(document.querySelector('#settingsDialog').open, false);
+  const reloaded = boot({ savedDisk: app.disk }); await reloaded.ready;
+  assert.equal(reloaded.context.document.dataset.theme, 'dark');
+  assert.equal(reloaded.context.document.querySelector('#colorTheme').value, 'dark');
+  const otherDevice = boot({ authenticated: true }); await otherDevice.ready;
+  assert.equal(otherDevice.context.document.dataset.theme, 'light');
+});
+
+test('refresh stays disabled on the device tab and is available only for authenticated shared notes', async () => {
+  for (const authenticated of [false, true]) {
+    const app = boot({ authenticated }); await app.ready; await new Promise(setImmediate);
+    const button = app.context.document.querySelector('#refreshNotes');
+    assert.equal(button.disabled, true);
+    const count = app.requests.length; button.click(); await new Promise(setImmediate);
+    assert.equal(app.requests.length, count);
+    app.tab(1); assert.equal(button.disabled, !authenticated);
+    app.tab(0); assert.equal(button.disabled, true);
+  }
+});
+
+async function until(predicate) {
+  const deadline = Date.now() + 3000;
+  while (!predicate()) {
+    assert.ok(Date.now() < deadline, 'application did not settle');
+    await new Promise(resolve => setTimeout(resolve, 5));
+  }
+}
+async function authFixture(t, origin = 'http://127.0.0.1:5500', config) {
+  const { createDatabase } = require('../lib/sqlite-adapter.cjs');
+  const admin = require('../lib/login-admin.cjs');
+  const { handleApi } = await import('../lib/cloud-api.mjs');
+  const db = createDatabase(); t.after(() => db.close());
+  db.batch(admin.prepare(db, admin.issue('00123')));
+  const sessionDisk = new Map();
+  let offline = false;
+  const create = () => boot({ origin, sessionDisk, config, apiFetch: (url, options) => {
+    if (offline) throw new TypeError('offline');
+    return handleApi(new Request(url, { ...options, headers: { ...options.headers, Origin: origin, 'Sec-Fetch-Site': 'cross-site' } }), { DB: db });
+  } });
+  return { db, sessionDisk, create, setOffline: value => { offline = value; } };
+}
+async function settled(app) {
+  await app.ready;
+  await until(() => !app.context.document.querySelector('#accountButton').disabled);
+}
+async function login(app) {
+  await settled(app);
+  const document = app.context.document;
+  document.querySelector('#loginNumber').value = '00123';
+  document.querySelector('#loginForm').dispatchEvent({ type: 'submit' });
+  await until(() => document.querySelector('#accountButton').textContent === 'ログイン中' && !document.querySelector('#accountButton').disabled);
+}
+
+test('local 5500 reloads restore a real bearer session, and logout clears it', async t => {
+  for (const origin of ['http://localhost:5500', 'http://127.0.0.1:5500', 'http://[::1]:5500']) {
+    const fixture = await authFixture(t, origin);
+    const initial = fixture.create(); await login(initial);
+    assert.equal(fixture.sessionDisk.size, 1);
+    const saved = JSON.parse([...fixture.sessionDisk.values()][0]);
+    assert.deepEqual(Object.keys(saved).sort(), ['expiresAt', 'token']);
+    assert.match(saved.token, /^[a-f0-9]{64}$/);
+    const reloaded = fixture.create(); await settled(reloaded);
+    const document = reloaded.context.document;
+    assert.equal(document.querySelector('#accountButton').textContent, 'ログイン中');
+    assert.equal(reloaded.requests[0].options.headers.Authorization, 'Bearer ' + saved.token);
+    assert.equal(reloaded.requests[0].options.credentials, 'omit');
+    document.querySelector('#logoutButton').click();
+    await until(() => document.querySelector('#accountButton').textContent === 'ログイン' && !document.querySelector('#accountButton').disabled);
+    assert.equal(fixture.sessionDisk.size, 0);
+    const afterLogout = fixture.create(); await settled(afterLogout);
+    assert.equal(afterLogout.context.document.querySelector('#accountButton').textContent, 'ログイン');
+  }
+});
+
+test('expired and server-revoked preview sessions are removed rather than restored', async t => {
+  const fixture = await authFixture(t);
+  const first = fixture.create(); await login(first);
+  const [key, serialized] = [...fixture.sessionDisk][0];
+  fixture.sessionDisk.set(key, JSON.stringify({ ...JSON.parse(serialized), expiresAt: Date.now() - 1 }));
+  const expired = fixture.create(); await settled(expired);
+  assert.equal(expired.requests[0].options.headers.Authorization, undefined);
+  assert.equal(fixture.sessionDisk.size, 0);
+  await login(expired);
+  fixture.db.prepare('UPDATE sessions SET expires_at = 0').run();
+  expired.context.document.querySelector('#refreshNotes').click();
+  await until(() => expired.context.document.querySelector('#accountButton').textContent === 'ログイン');
+  assert.equal(fixture.sessionDisk.size, 0);
+});
+
+test('temporary preview network failures preserve the session for a later reload', async t => {
+  const fixture = await authFixture(t);
+  const first = fixture.create(); await login(first);
+  fixture.setOffline(true);
+  const offline = fixture.create(); await settled(offline);
+  assert.equal(fixture.sessionDisk.size, 1);
+  fixture.setOffline(false);
+  const online = fixture.create(); await settled(online);
+  assert.equal(online.context.document.querySelector('#accountButton').textContent, 'ログイン中');
+});
+
+test('GitHub Pages keeps its existing memory-only session behavior', async t => {
+  const fixture = await authFixture(t, 'https://itachi-kun-itc.github.io', { apiBase: 'https://copynotes-bjx.pages.dev' });
+  const first = fixture.create(); await login(first);
+  assert.equal(fixture.sessionDisk.size, 0);
+  const reloaded = fixture.create(); await settled(reloaded);
+  assert.equal(reloaded.context.document.querySelector('#accountButton').textContent, 'ログイン');
 });

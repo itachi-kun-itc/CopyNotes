@@ -63,13 +63,24 @@
   const sharing = CopyNotesSharing;
   const apiBase = (globalThis.CopyNotesConfig?.apiBase || '').replace(/\/$/, '');
   const crossOriginApi = Boolean(apiBase && new URL(apiBase).origin !== location.origin);
-  // Cross-origin frontends use a short-lived token only in memory.
+  // Static local previews retain the short-lived token across tab reloads.
+  // The storage key also binds it to this API; login numbers are never saved.
+  const persistApiSession = crossOriginApi && Boolean(globalThis.CopyNotesConfig?.persistSession);
+  const apiSessionKey = 'copynotes.preview-session.v1.' + apiBase;
   let apiSession = '';
+  if (persistApiSession) {
+    try {
+      const saved = JSON.parse(sessionStorage.getItem(apiSessionKey));
+      if (/^[a-f0-9]{64}$/.test(saved?.token) && Number.isFinite(saved.expiresAt) && saved.expiresAt > Date.now()) apiSession = saved.token;
+      else sessionStorage.removeItem(apiSessionKey);
+    } catch { /* Use the current tab's in-memory session if storage is blocked. */ }
+  }
   const refreshButton = document.querySelector('#refreshNotes');
   const syncButton = document.querySelector('#syncNotes');
-  const noticeButton = document.querySelector('#noticeButton');
-  const noticeDialog = document.querySelector('#noticeDialog');
-  const closeNotice = document.querySelector('#closeNotice');
+  const settingsButton = document.querySelector('#settingsButton');
+  const settingsDialog = document.querySelector('#settingsDialog');
+  const closeSettings = document.querySelector('#closeSettings');
+  const colorTheme = document.querySelector('#colorTheme');
   const accountButton = document.querySelector('#accountButton');
   const deviceTab = document.querySelector('#deviceTab');
   const sharedTab = document.querySelector('#sharedTab');
@@ -236,8 +247,8 @@
     document.querySelector('#notesPanel').setAttribute('aria-labelledby', shared ? 'sharedTab' : 'deviceTab');
     accountButton.textContent = authenticated ? 'ログイン中' : 'ログイン';
     accountButton.disabled = busy;
-    refreshButton.disabled = shared && (busy || !authenticated);
-    refreshButton.title = !shared ? '空白の入力欄を整理' : authenticated ? '共有内容を取得して空白の入力欄を整理' : 'ログイン後に更新できます';
+    refreshButton.disabled = busy || !shared || !authenticated;
+    refreshButton.title = !shared ? '共有タブで更新できます' : authenticated ? '共有内容を取得して空白の入力欄を整理' : 'ログイン後に更新できます';
     syncButton.disabled = busy || !shared || !authenticated;
     syncButton.title = !shared ? '共有タブで同期できます' : authenticated ? '共有タブの変更を送信' : 'ログイン後に同期できます';
     syncButton.setAttribute('aria-busy', String(busy));
@@ -353,13 +364,21 @@
       });
       if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('共有機能に接続できませんでした');
       const data = await response.json();
-      if (crossOriginApi && (response.status === 401 || path === 'auth' && data.authenticated === false)) apiSession = '';
+      if (crossOriginApi && (response.status === 401 || path === 'auth' && data.authenticated === false)) {
+        apiSession = '';
+        if (persistApiSession) try { sessionStorage.removeItem(apiSessionKey); } catch { /* Storage can be blocked. */ }
+      }
       if (!response.ok) {
         const error = new Error(data.error || '共有機能に接続できませんでした');
         error.status = response.status;
         throw error;
       }
-      if (crossOriginApi && path === 'auth' && data.sessionToken) apiSession = data.sessionToken;
+      if (crossOriginApi && path === 'auth' && data.sessionToken) {
+        apiSession = data.sessionToken;
+        if (persistApiSession && Number.isFinite(data.expiresIn) && data.expiresIn > 0) try {
+          sessionStorage.setItem(apiSessionKey, JSON.stringify({ token: apiSession, expiresAt: Date.now() + data.expiresIn * 1000 }));
+        } catch { /* Keep the valid in-memory session if persistence fails. */ }
+      }
       return data;
     } catch (error) {
       if (error.name === 'AbortError' || error instanceof TypeError) throw new Error('通信できませんでした。変更はこの端末に保存されています');
@@ -439,24 +458,29 @@
   loginDialog.addEventListener('cancel', event => { if (busy) event.preventDefault(); });
   loginNumber.addEventListener('input', () => { loginError.textContent = ''; });
   refreshButton.addEventListener('click', async () => {
-    if (refreshButton.disabled) return;
+    if (activeTab !== 'shared' || refreshButton.disabled) return;
     const expectedTab = activeTab;
     await waitForIdle();
     if (activeTab !== expectedTab || refreshButton.disabled) return;
     compactNotes();
     scheduleResizeNotes();
-    if (activeTab === 'shared') {
-      autoSync.changed();
-      await cloudAction(false, true);
-    } else announce('更新しました');
+    autoSync.changed();
+    await cloudAction(false, true);
   });
   syncButton.addEventListener('click', () => { if (activeTab === 'shared') cloudAction(true); });
-  noticeButton.addEventListener('click', () => { if (!noticeDialog.open) noticeDialog.showModal(); });
-  closeNotice.addEventListener('click', () => noticeDialog.close());
-  noticeDialog.addEventListener('click', event => {
-    if (event.target !== noticeDialog) return;
-    const rect = noticeDialog.getBoundingClientRect();
-    if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) noticeDialog.close();
+  colorTheme.value = CopyNotesTheme.get();
+  CopyNotesTheme.subscribe(value => { colorTheme.value = value; });
+  colorTheme.addEventListener('change', () => {
+    if (!CopyNotesTheme.set(colorTheme.value)) announce('このブラウザでは設定を保存できません');
+  });
+  settingsButton.addEventListener('click', () => {
+    if (!settingsDialog.open) settingsDialog.showModal();
+  });
+  closeSettings.addEventListener('click', () => settingsDialog.close());
+  settingsDialog.addEventListener('click', event => {
+    if (event.target !== settingsDialog) return;
+    const rect = settingsDialog.getBoundingClientRect();
+    if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) settingsDialog.close();
   });
   loginForm.addEventListener('submit', async event => {
     event.preventDefault();

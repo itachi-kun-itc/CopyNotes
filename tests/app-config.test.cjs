@@ -11,6 +11,7 @@ test('static previews on loopback port 5500 use the public login API, including 
     const context = vm.createContext({ location: { origin, href: origin + '/CopyNotes/index.html' } });
     vm.runInContext(source, context);
     assert.equal(context.CopyNotesConfig.apiBase, 'https://copynotes-bjx.pages.dev');
+    assert.equal(context.CopyNotesConfig.persistSession, true);
     assert.equal(Object.isFrozen(context.CopyNotesConfig), true);
   }
 });
@@ -20,5 +21,6 @@ test('native hosting, other ports and lookalike hosts keep the same-origin API',
     const context = vm.createContext({ location: { origin } });
     vm.runInContext(source, context);
     assert.equal(context.CopyNotesConfig.apiBase, '');
+    assert.equal(context.CopyNotesConfig.persistSession, false);
   }
 });
