@@ -115,12 +115,13 @@ body {
   padding-right: env(safe-area-inset-right, 0px);
 }
 /* Safari samples actual viewport-edge backgrounds for its status-bar tint. */
-.system-bar-background, .dialog-system-bar {
+.system-bar-background {
   position: fixed; z-index: 1; top: 0; right: 0; left: 0;
   height: max(8px, var(--overlay-inset-top, 0px), env(safe-area-inset-top, 0px));
   background-color: var(--page);
   pointer-events: none;
 }
+html[data-overlay-open="true"] .system-bar-background { z-index: 102; }
 body::before {
   content: ""; position: fixed; z-index: -1; inset: 0; pointer-events: none;
   background: radial-gradient(ellipse 480px 300px at calc(50% - 190px) -60px, var(--glow-a), transparent),
@@ -224,7 +225,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .sharing-login { padding: 28px 18px; text-align: center; border: 1px dashed var(--border); border-radius: 14px; }
 .sharing-login p { margin: 0 0 16px; color: var(--muted); font-size: 13px; line-height: 1.8; }
 .login-dialog, .settings-dialog {
-  position: fixed;
+  position: fixed; z-index: 101; left: 0; right: 0;
   top: max(16px, var(--overlay-inset-top, 0px), env(safe-area-inset-top, 0px));
   bottom: max(16px, env(safe-area-inset-bottom, 0px));
   margin: auto;
@@ -234,7 +235,12 @@ button { -webkit-tap-highlight-color: transparent; }
   border: 1px solid var(--border); border-radius: 18px;
   color: var(--text); background: var(--page); box-shadow: 0 16px 70px #1e291d26;
 }
-.login-dialog::backdrop, .settings-dialog::backdrop { background: var(--backdrop); backdrop-filter: blur(3px); }
+.modal-backdrop {
+  position: fixed; z-index: 100; inset: 0;
+  background: var(--backdrop);
+  -webkit-backdrop-filter: blur(3px); backdrop-filter: blur(3px);
+  touch-action: none;
+}
 .login-heading, .settings-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .login-heading h1, .settings-heading h2 { margin: 0; font-size: 19px; font-weight: 600; }
 .settings-label { display: block; margin: 24px 0 10px; font-size: 14px; font-weight: 600; }

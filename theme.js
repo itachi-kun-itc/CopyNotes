@@ -29,11 +29,7 @@ globalThis.CopyNotesTheme = (() => {
     root.style.backgroundColor = colors[theme];
     root.style.colorScheme = scheme;
     if (document.body) document.body.style.backgroundColor = colors[theme];
-    // Modal dialogs live above the document and its status-bar layer. Paint
-    // their viewport-edge layers too so an open overlay cannot mask a change.
-    for (const selector of ['.system-bar-background', '.dialog-system-bar']) {
-      for (const layer of document.querySelectorAll?.(selector) || []) layer.style.backgroundColor = colors[theme];
-    }
+    for (const layer of document.querySelectorAll?.('.system-bar-background') || []) layer.style.backgroundColor = colors[theme];
     const themeColor = document.querySelector('meta[name="theme-color"]');
     themeColor?.setAttribute('content', colors[theme]);
     document.querySelector('meta[name="color-scheme"]')?.setAttribute('content', scheme);

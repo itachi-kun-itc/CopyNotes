@@ -33,6 +33,9 @@ class Element {
   remove() { if (this.parentElement) this.parentElement.children = this.parentElement.children.filter(node => node !== this); this.parentElement = null; }
   replaceChildren(...nodes) { this.children.forEach(node => { node.parentElement = null; }); this.children = []; this.append(...nodes); }
   matches(selector) {
+    if (selector.includes(',')) return selector.split(',').some(part => this.matches(part.trim()));
+    if (selector === 'a[href]') return this.tagName === 'a' && 'href' in this.attributes;
+    if (selector === '[tabindex]') return 'tabindex' in this.attributes;
     if (selector.includes(':not(')) return this.matches(selector.split(':')[0]) && !this.classList.contains('is-removing');
     return selector.startsWith('.') ? this.classList.contains(selector.slice(1)) : selector.startsWith('#') ? this.id === selector.slice(1) : this.tagName === selector;
   }
@@ -44,7 +47,8 @@ class Element {
   removeAttribute(name) { delete this.attributes[name]; }
   getClientRects() { return []; }
   getAnimations() { return []; }
-  showModal() { this.open = true; }
+  show() { this.open = true; }
+  showModal() { throw new Error('Native modal compositor must not be used'); }
   close() { const wasOpen = this.open; this.open = false; if (wasOpen) this.dispatchEvent({ type: 'close' }); }
   getBoundingClientRect() { return { left: 0, top: 0, right: 360, bottom: 300 }; }
   focus() { this.ownerDocument.activeElement = this; }
@@ -211,7 +215,7 @@ test('settings replace notices, persist themes locally and never send a shared u
   app.tab(1); app.tab(0); assert.equal(field.value, 'dark');
   document.querySelector('#closeSettings').click(); assert.equal(document.querySelector('#settingsDialog').open, false);
   document.querySelector('#settingsButton').click();
-  document.querySelector('#settingsDialog').dispatchEvent({ type: 'click', clientX: 400, clientY: 400 });
+  document.querySelector('#modalBackdrop').click();
   assert.equal(document.querySelector('#settingsDialog').open, false);
   const reloaded = boot({ savedDisk: app.disk }); await reloaded.ready;
   assert.equal(reloaded.context.document.dataset.theme, 'dark');
@@ -263,9 +267,10 @@ test('settings and account overlays preserve header spacing if iOS reduces its s
       assert.equal(document.style['--overlay-notes-top'], '59px');
       assert.equal(document.dataset.theme, 'navy');
     }
-    // Native Escape also closes via the dialog's close event.
+    // The page handles Escape without entering the native modal compositor.
     const dialog = document.querySelector(trigger === '#settingsButton' ? '#settingsDialog' : '#loginDialog');
-    dialog.close();
+    document.dispatchEvent({ type: 'keydown', key: 'Escape' });
+    assert.equal(dialog.open, false);
     assert.equal(document.style['--overlay-notes-top'], '59px', 'release waits for the next layout frame');
     layout.top = '59px'; layout.inset = '59px'; app.flushFrames();
     assert.equal(document.style['--overlay-notes-top'], undefined);
@@ -283,10 +288,58 @@ test('closing one overlay cannot release another overlay spacing, including a fa
   assert.equal(document.style['--overlay-notes-top'], '59px');
   document.querySelector('#loginDialog').close(); app.flushFrames();
   assert.equal(document.style['--overlay-notes-top'], undefined);
-  document.querySelector('#settingsDialog').showModal = () => { throw new Error('cannot open'); };
+  document.querySelector('#settingsDialog').show = () => { throw new Error('cannot open'); };
   assert.throws(() => document.querySelector('#settingsButton').click(), /cannot open/);
   assert.equal(document.style['--overlay-notes-top'], undefined);
   assert.equal(document.style['--overlay-inset-top'], undefined);
+  assert.equal(document.querySelector('#modalBackdrop').hidden, true);
+  assert.equal(document.querySelector('.notes').inert, false);
+});
+
+test('page overlays trap focus, block background interaction and restore the opener without a native modal', async () => {
+  const app = boot(); await app.ready; await new Promise(setImmediate);
+  const document = app.context.document;
+  const trigger = document.querySelector('#settingsButton'), dialog = document.querySelector('#settingsDialog');
+  const close = document.querySelector('#closeSettings'), select = document.querySelector('#colorTheme');
+  dialog.append(close, select);
+  close.getClientRects = select.getClientRects = () => [{}];
+  trigger.focus(); trigger.click();
+  assert.equal(dialog.open, true);
+  assert.equal(document.querySelector('#modalBackdrop').hidden, false);
+  assert.equal(document.querySelector('.notes').inert, true);
+  assert.equal(document.querySelector('#noteMenu').inert, true);
+  assert.equal(document.documentElement.dataset.overlayOpen, 'true');
+  assert.equal(document.activeElement, close);
+  document.dispatchEvent({ type: 'keydown', key: 'Tab', shiftKey: true }); assert.equal(document.activeElement, select);
+  document.dispatchEvent({ type: 'keydown', key: 'Tab' }); assert.equal(document.activeElement, close);
+  select.value = 'mint'; select.dispatchEvent({ type: 'input' });
+  assert.equal(document.querySelector('.system-bar-background').style.backgroundColor, '#eaf4ee');
+  assert.equal(dialog.open, true);
+  document.dispatchEvent({ type: 'keydown', key: 'Escape' }); app.flushFrames();
+  assert.equal(dialog.open, false);
+  assert.equal(document.querySelector('#modalBackdrop').hidden, true);
+  assert.equal(document.querySelector('.notes').inert, false);
+  assert.equal(document.querySelector('#noteMenu').inert, false);
+  assert.equal(document.documentElement.dataset.overlayOpen, undefined);
+  assert.equal(document.activeElement, trigger);
+});
+
+test('Escape cannot dismiss an account overlay while authentication is in flight', async () => {
+  let finish;
+  const pending = new Promise(resolve => { finish = resolve; });
+  const app = boot({ apiFetch: (url, options) => options.method === 'POST' ? pending : Response.json({ authenticated: false }) });
+  await settled(app);
+  const document = app.context.document;
+  document.querySelector('#accountButton').click();
+  document.querySelector('#loginNumber').value = '00123';
+  document.querySelector('#loginForm').dispatchEvent({ type: 'submit' });
+  document.dispatchEvent({ type: 'keydown', key: 'Escape' });
+  assert.equal(document.querySelector('#loginDialog').open, true);
+  finish(Response.json({ error: 'invalid code' }, { status: 401 }));
+  await until(() => !document.querySelector('#accountButton').disabled);
+  document.dispatchEvent({ type: 'keydown', key: 'Escape' }); app.flushFrames();
+  assert.equal(document.querySelector('#loginDialog').open, false);
+  assert.equal(document.querySelector('.notes').inert, false);
 });
 
 async function until(predicate) {

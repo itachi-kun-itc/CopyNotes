@@ -8,7 +8,7 @@ const source = fs.readFileSync(path.join(__dirname, '../theme.js'), 'utf8');
 const key = 'copynotes.settings.v1';
 function boot({ disk = new Map(), dark = false, blocked = false } = {}) {
   const root = { dataset: {}, style: {} }, body = { style: {} };
-  const pageBar = { style: {} }, modalBar = { style: {} };
+  const pageBar = { style: {} };
   const meta = { setAttribute(name, value) { this[name] = value; } };
   const attached = [];
   meta.parentNode = { appendChild: node => attached.push(node) };
@@ -16,7 +16,7 @@ function boot({ disk = new Map(), dark = false, blocked = false } = {}) {
   const events = new Map(), documentEvents = new Map(), media = { matches: dark, addEventListener(type, listener) { this.listener = listener; } };
   const document = { documentElement: root, body, visibilityState: 'visible',
     querySelector: selector => selector === 'meta[name="color-scheme"]' ? scheme : meta,
-    querySelectorAll: selector => selector === '.system-bar-background' ? [pageBar] : selector === '.dialog-system-bar' ? [modalBar] : [],
+    querySelectorAll: selector => selector === '.system-bar-background' ? [pageBar] : [],
     addEventListener: (type, listener) => documentEvents.set(type, listener) };
   const context = vm.createContext({
     document,
@@ -26,7 +26,7 @@ function boot({ disk = new Map(), dark = false, blocked = false } = {}) {
     fetch() { throw new Error('Theme settings must never use the network'); },
   });
   vm.runInContext(source, context);
-  return { theme: context.CopyNotesTheme, root, body, document, meta, scheme, disk, media, events, documentEvents, attached, pageBar, modalBar };
+  return { theme: context.CopyNotesTheme, root, body, document, meta, scheme, disk, media, events, documentEvents, attached, pageBar };
 }
 
 test('theme choices apply immediately and survive reload without changing notes or shared drafts', () => {
@@ -43,7 +43,6 @@ test('theme choices apply immediately and survive reload without changing notes 
     assert.equal(b.root.style.backgroundColor, colors[choice]);
     assert.equal(b.body.style.backgroundColor, colors[choice]);
     assert.equal(b.pageBar.style.backgroundColor, colors[choice]);
-    assert.equal(b.modalBar.style.backgroundColor, colors[choice]);
     const reloaded = boot({ disk });
     assert.equal(reloaded.theme.get(), choice); assert.equal(reloaded.root.dataset.theme, choice);
   }

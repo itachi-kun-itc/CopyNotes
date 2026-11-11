@@ -98,27 +98,71 @@
   const logoutButton = document.querySelector('#logoutButton');
   const closeLogin = document.querySelector('#closeLogin');
   const modalDialogs = [loginDialog, settingsDialog];
+  const modalBackdrop = document.querySelector('#modalBackdrop');
+  const returnFocus = new Map();
+  const currentModal = () => modalDialogs.find(dialog => dialog.open);
   function releaseModalLayout() {
-    if (modalDialogs.some(dialog => dialog.open)) return;
+    if (currentModal()) return;
     document.documentElement.style.removeProperty('--overlay-notes-top');
     document.documentElement.style.removeProperty('--overlay-inset-top');
+    delete document.documentElement.dataset.overlayOpen;
+    modalBackdrop.hidden = true;
+    document.querySelector('.notes').inert = false;
+    menu.inert = false;
   }
   function openModal(dialog) {
     if (dialog.open) return;
-    if (!modalDialogs.some(item => item.open)) {
-      // iOS can change its viewport insets when promoting a modal to the top
-      // layer. Preserve the underlying header's pre-modal spacing.
+    const previousFocus = document.activeElement;
+    if (!currentModal()) {
+      // Hold header spacing while the on-screen picker or keyboard is active.
       const rootStyle = document.documentElement.style;
       rootStyle.setProperty('--overlay-notes-top', getComputedStyle(document.querySelector('.notes')).paddingTop);
       rootStyle.setProperty('--overlay-inset-top', getComputedStyle(document.querySelector('.system-bar-background')).height);
     }
-    try { dialog.showModal(); }
-    catch (error) { releaseModalLayout(); throw error; }
+    for (const other of modalDialogs) if (other !== dialog && other.open) other.close();
+    closeMenu();
+    returnFocus.set(dialog, previousFocus && !modalDialogs.some(item => item.contains(previousFocus))
+      ? previousFocus : dialog === settingsDialog ? settingsButton : accountButton);
+    document.documentElement.dataset.overlayOpen = 'true';
+    modalBackdrop.hidden = false;
+    document.querySelector('.notes').inert = true;
+    menu.inert = true;
+    try {
+      // Avoid the native modal/top-layer compositor: iOS Home Screen apps can
+      // freeze their status-bar tint until a showModal() dialog is dismissed.
+      dialog.show();
+      (dialog === settingsDialog ? closeSettings : authenticated ? logoutButton : loginNumber).focus({ preventScroll: true });
+    } catch (error) { returnFocus.delete(dialog); releaseModalLayout(); throw error; }
   }
   for (const dialog of modalDialogs) {
-    // Covers close buttons, backdrop clicks, Escape and successful login/logout.
-    dialog.addEventListener('close', () => requestAnimationFrame(releaseModalLayout));
+    dialog.addEventListener('close', () => {
+      const previousFocus = returnFocus.get(dialog); returnFocus.delete(dialog);
+      requestAnimationFrame(() => {
+        if (currentModal()) return;
+        releaseModalLayout();
+        if (previousFocus?.isConnected && !previousFocus.disabled) previousFocus.focus({ preventScroll: true });
+      });
+    });
   }
+  modalBackdrop.addEventListener('click', event => {
+    const dialog = currentModal();
+    if (event.target !== modalBackdrop || !dialog || dialog === loginDialog && (!authenticated || busy)) return;
+    dialog.close();
+  });
+  document.addEventListener('keydown', event => {
+    const dialog = currentModal(); if (!dialog) return;
+    if (event.key === 'Escape') {
+      event.preventDefault(); event.stopImmediatePropagation();
+      if (dialog !== loginDialog || !busy) dialog.close();
+    } else if (event.key === 'Tab') {
+      const controls = Array.from(dialog.querySelectorAll('button, input, select, textarea, a[href], [tabindex]'))
+        .filter(element => !element.disabled && element.tabIndex !== -1 && element.getClientRects().length);
+      const first = controls[0], last = controls.at(-1), focused = document.activeElement;
+      if (!first) { event.preventDefault(); dialog.focus({ preventScroll: true }); }
+      else if (event.shiftKey && (focused === first || !controls.includes(focused))) { event.preventDefault(); last.focus({ preventScroll: true }); }
+      else if (!event.shiftKey && (focused === last || !controls.includes(focused))) { event.preventDefault(); first.focus({ preventScroll: true }); }
+    }
+  }, { capture: true });
   const deviceStore = CopyNotesDeviceStorage.create(noteStorage, storageWarning);
   let deviceNotes = deviceStore.load();
   let sharedNotes = [];
@@ -364,7 +408,6 @@
     loginError.textContent = '';
     loginNumber.value = '';
     openModal(loginDialog);
-    (authenticated ? logoutButton : loginNumber).focus();
   }
 
   function resetAuthentication() {
@@ -472,11 +515,6 @@
   accountButton.addEventListener('click', openLogin);
   document.querySelector('#sharingLoginButton').addEventListener('click', openLogin);
   closeLogin.addEventListener('click', () => loginDialog.close());
-  loginDialog.addEventListener('click', event => {
-    if (!authenticated || busy || event.target !== loginDialog) return;
-    const rect = loginDialog.getBoundingClientRect();
-    if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) loginDialog.close();
-  });
   loginDialog.addEventListener('cancel', event => { if (busy) event.preventDefault(); });
   loginNumber.addEventListener('input', () => { loginError.textContent = ''; });
   refreshButton.addEventListener('click', async () => {
@@ -502,11 +540,6 @@
     openModal(settingsDialog);
   });
   closeSettings.addEventListener('click', () => settingsDialog.close());
-  settingsDialog.addEventListener('click', event => {
-    if (event.target !== settingsDialog) return;
-    const rect = settingsDialog.getBoundingClientRect();
-    if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) settingsDialog.close();
-  });
   loginForm.addEventListener('submit', async event => {
     event.preventDefault();
     if (busy || authenticated) return;
