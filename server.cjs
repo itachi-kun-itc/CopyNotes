@@ -20,6 +20,8 @@ const files = new Map([
   ["/links.js", ["links.js", "text/javascript; charset=utf-8"]],
   ["/note-limits.js", ["note-limits.js", "text/javascript; charset=utf-8"]],
   ["/note-images.js", ["note-images.js", "text/javascript; charset=utf-8"]],
+  ["/attachment-storage.js", ["attachment-storage.js", "text/javascript; charset=utf-8"]],
+  ["/image-transfer.js", ["image-transfer.js", "text/javascript; charset=utf-8"]],
   ["/code-editor.js", ["code-editor.js", "text/javascript; charset=utf-8"]],
   ["/sharing.js", ["sharing.js", "text/javascript; charset=utf-8"]],
   ["/device-storage.js", ["device-storage.js", "text/javascript; charset=utf-8"]],
@@ -67,6 +69,13 @@ http.createServer(async (request, response) => {
   catch { response.writeHead(400).end("Bad Request"); return; }
   const file = files.get(pathname);
   if (!file) { response.writeHead(404).end("Not Found"); return; }
+  // The Node server supplies its own API, including when its port is 5500.
+  // Static previews use the browser's app-config.js to select the public API.
+  if (pathname === '/app-config.js') {
+    response.writeHead(200, { 'Content-Type': file[1], 'Cache-Control': 'no-store' });
+    response.end('"use strict";\nglobalThis.CopyNotesConfig = Object.freeze({ apiBase: "" });\n');
+    return;
+  }
   fs.readFile(path.join(__dirname, file[0]), (error, content) => {
     if (error) { response.writeHead(500).end("Server Error"); return; }
     response.writeHead(200, {

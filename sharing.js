@@ -32,7 +32,9 @@ globalThis.CopyNotesSharing = (() => {
     let length = 0;
     const result = [];
     for (const operation of operations) {
-      const size = encoder.encode(JSON.stringify(operation)).byteLength + (result.length ? 1 : 0);
+      const wire = { ...operation, images: (operation.images || []).map(src => CopyNotesImages.byteLength(src) > CopyNotesImages.inlineBytes
+        ? CopyNotesImages.referencePrefix + '0'.repeat(36) : src) };
+      const size = encoder.encode(JSON.stringify(wire)).byteLength + (result.length ? 1 : 0);
       if (result.length === 200 || length + operation.text.length > 1000000 || bytes + size > 2 * 1024 * 1024) break;
       result.push(operation);
       length += operation.text.length;

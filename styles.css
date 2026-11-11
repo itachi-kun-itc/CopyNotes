@@ -239,6 +239,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .attach-image:disabled { opacity: .45; cursor: default; }
 .note-input:read-only::placeholder { font-size: 13px; }
 .note-actions { display: flex; flex-direction: column; flex-shrink: 0; gap: 4px; }
+.note-row:not(.has-attachment) .note-actions { align-self: flex-start; }
 .is-code .image-tools { color: #a5a5a5; }
 @media (max-width: 480px) { .note-image img { height: 120px; } }
 .note-highlight {

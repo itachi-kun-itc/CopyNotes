@@ -2,9 +2,18 @@
 
 globalThis.CopyNotesImages = (() => {
   const maxImages = 1;
-  // Base64 plus the note envelope must fit in the 2 MiB sync request.
-  const maxBytes = 1024 * 1024;
+  const maxImageNotes = 3;
+  // Large originals are stored separately and synchronized in small chunks.
+  const maxBytes = 20 * 1024 * 1024;
+  const inlineBytes = 1024 * 1024;
+  const chunkLength = 1024 * 1024; // Base64 characters, divisible by four.
+  const referencePrefix = 'copynotes-image:';
+  const referenceId = src => typeof src === 'string' && /^copynotes-image:[a-f0-9-]{36}$/.test(src) ? src.slice(referencePrefix.length) : null;
   const maxEncodedLength = 4 * Math.ceil(maxBytes / 3);
+  const byteLength = src => {
+    const data = src.slice(src.indexOf(',') + 1);
+    return data.length / 4 * 3 - (data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0);
+  };
   const valid = (images, limit = maxImages) => images === undefined || Array.isArray(images) && images.length <= limit
     && images.every(src => {
       if (typeof src !== 'string' || src.length > maxEncodedLength + 24 || !/^data:image\/(?:png|jpeg|webp);base64,/.test(src)) return false;
@@ -43,7 +52,7 @@ globalThis.CopyNotesImages = (() => {
     });
   }
   async function prepare(file) {
-    const tooLarge = () => new Error('画質を保つため、1MiB以下の画像を添付してください');
+    const tooLarge = () => new Error('画質を保つため、20MiB以下の画像を添付してください');
     if (/^image\/(?:png|jpeg|webp)$/.test(file.type) && file.size > maxBytes) throw tooLarge();
     const src = await read(file);
     const image = new Image();
@@ -111,5 +120,5 @@ globalThis.CopyNotesImages = (() => {
     document.body.append(link); link.click(); link.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
-  return Object.freeze({ maxImages, maxBytes, valid, equal, isBlank, validNote, equalNote, split, filesFrom, prepare, toPng, canCopy, copy, download });
+  return Object.freeze({ maxImages, maxImageNotes, maxBytes, inlineBytes, chunkLength, referencePrefix, referenceId, byteLength, valid, equal, isBlank, validNote, equalNote, split, filesFrom, prepare, toPng, canCopy, copy, download });
 })();

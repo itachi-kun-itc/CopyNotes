@@ -47,7 +47,7 @@ class Element {
   click() { if (!this.disabled) this.dispatchEvent({ type: 'click' }); }
 }
 
-function boot({ clipboard = true, formats = ['image/png', 'text/plain'] } = {}) {
+function boot({ clipboard = true, formats = ['image/png', 'text/plain'], indexedDB, authenticated = false, savedDisk } = {}) {
   const document = new Element('document'); document.connected = true; document.ownerDocument = document;
   document.visibilityState = 'hidden'; document.baseURI = 'http://localhost/'; document.body = document;
   document.createElement = tag => { const element = new Element(tag); element.ownerDocument = document; return element; };
@@ -65,25 +65,27 @@ function boot({ clipboard = true, formats = ['image/png', 'text/plain'] } = {}) 
     }
     return row;
   } } };
-  const disk = new Map(), downloads = [], copiedImages = [];
+  const disk = savedDisk || new Map(), downloads = [], copiedImages = [];
+  let selectTab;
   const context = vm.createContext({ document, window: new Element('window'), crypto, URL, Blob, atob, Uint8Array,
     navigator: { onLine: true, clipboard: clipboard ? { write: async () => {} } : undefined }, location: { origin: 'http://localhost' },
     ClipboardItem: class { constructor(data) { this.data = data; } static supports(type) { return formats.includes(type); } },
-    localStorage: { getItem: key => disk.get(key) ?? null, setItem: (key, value) => disk.set(key, value) },
+    indexedDB,
+    localStorage: { get length() { return disk.size; }, key: index => [...disk.keys()][index], getItem: key => disk.get(key) ?? null, setItem: (key, value) => disk.set(key, value) },
     setTimeout: (callback, delay) => { if (!delay) queueMicrotask(callback); return 1; }, clearTimeout() {}, requestAnimationFrame: () => 1,
-    AbortController, fetch: async () => ({ ok: true, headers: { get: () => 'application/json' }, json: async () => ({ authenticated: false }) }),
+    AbortController, fetch: async url => ({ ok: true, headers: { get: () => 'application/json' }, json: async () => String(url).endsWith('/notes') ? { notes: [] } : { authenticated, roomId: authenticated ? 'room' : null } }),
     CopyNotesTouch: { attach: () => ({ cancel() {}, active: false }) },
     CopyNotesAutoSync: { create: () => ({ changed() {}, refresh() {}, pause() {} }) },
-    CopyNotesTabs: { attach: () => ({ sync() {} }) },
+    CopyNotesTabs: { attach: (element, options) => { selectTab = options.onChange; return { sync() {} }; } },
     CopyNotesSyntax: { detect: () => null, tokenize: () => [] },
     CopyNotesLinks: { find: () => [], render: () => document.createElement('span') },
     CopyNotesLimits: { attach() {} }, CopyNotesEditor: { attach() {} },
   });
-  for (const file of ['note-images.js', 'sharing.js', 'device-storage.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'), context);
+  for (const file of ['note-images.js', 'attachment-storage.js', 'image-transfer.js', 'sharing.js', 'device-storage.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'), context);
   context.CopyNotesImages = { ...context.CopyNotesImages, prepare: async file => file.src, copy: async (text, sources) => copiedImages.push([...sources]), download: async sources => downloads.push([...sources]) };
-  vm.runInContext(fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8'), context);
+  const ready = vm.runInContext(fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8'), context);
   const list = nodes.get('#noteList');
-  return { row: () => list.children[0], add: () => nodes.get('#addNote').click(), list, disk, downloads, copiedImages, context };
+  return { ready, tab: index => selectTab(index), row: () => list.children[0], add: () => nodes.get('#addNote').click(), list, disk, downloads, copiedImages, context };
 }
 
 const photo = { type: 'image/png', src: 'data:image/png;base64,aGVsbG8=' };
@@ -137,4 +139,39 @@ test('image notes have independent copy and download actions; unsupported clipbo
     assert.deepEqual(app.downloads[0], [photo.src]);
     assert.equal(row.noteImages.length, 1);
   }
+});
+
+test('device and shared tabs each accept three image memos and reject a fourth, including overlapping pastes', async () => {
+  const app = boot({ authenticated: true }); await app.ready; await new Promise(setImmediate);
+  for (const tab of [0, 1]) {
+    app.tab(tab);
+    while (app.list.children.length < 4) app.add();
+    const rows = [...app.list.children];
+    for (const row of rows) paste(row, [photo]);
+    await Promise.all(rows.map(row => row.attachmentQueue));
+    assert.equal(app.list.children.filter(row => row.noteImages.length).length, 3);
+    assert.equal(rows[3].noteImages.length, 0);
+    assert.equal(rows[3].querySelector('.attach-image').disabled, true);
+    paste(rows[3], [photo]);
+    assert.match(app.context.document.querySelector('#status').textContent, /3枚/);
+    // Deleting one image memo releases a slot for the empty memo.
+    rows[0].remove();
+    const input = rows[3].querySelector('textarea'); input.dispatchEvent({ type: 'input' });
+    assert.equal(rows[3].querySelector('.attach-image').disabled, false);
+    paste(rows[3], [photo]); await rows[3].attachmentQueue;
+    assert.equal(rows[3].noteImages.length, 1);
+  }
+});
+
+test('a full-size attachment is durable before it appears and reloads with the same data', async () => {
+  const { IDBFactory } = require('fake-indexeddb');
+  const indexedDB = new IDBFactory();
+  const src = 'data:image/png;base64,' + Buffer.alloc(20 * 1024 * 1024, 123).toString('base64');
+  const app = boot({ indexedDB }); await app.ready;
+  const row = app.row();
+  paste(row, [{ type: 'image/png', src }]); await row.attachmentQueue;
+  assert.equal(row.noteImages[0], src);
+  assert.ok(app.disk.get(app.context.CopyNotesDeviceStorage.key).length < 300);
+  const reloaded = boot({ indexedDB, savedDisk: app.disk }); await reloaded.ready;
+  assert.equal(reloaded.row().noteImages[0], src);
 });

@@ -140,14 +140,14 @@ test('unsupported image formats use lossless PNG at the original dimensions', as
 
 test('oversized originals and lossless conversions fail without reducing image quality', async () => {
   const b = browser();
-  await assert.rejects(b.images.prepare({ type: 'image/jpeg', size: b.images.maxBytes + 1 }), /1MiB以下/);
+  await assert.rejects(b.images.prepare({ type: 'image/jpeg', size: b.images.maxBytes + 1 }), /20MiB以下/);
   assert.equal(b.reads.length, 0); assert.equal(b.canvases.length, 0);
   const oversized = 'data:image/png;base64,' + Buffer.alloc(b.images.maxBytes + 1).toString('base64');
   for (const src of [oversized, 'data:image/gif;base64,R0lG']) {
     const c = browser({ width: 4096, height: 2160, encoded: oversized });
     const promise = c.images.prepare({ type: src.includes('gif') ? 'image/gif' : 'image/png', src });
     await Promise.resolve(); c.decodes.forEach(decode => decode());
-    await assert.rejects(promise, /1MiB以下/);
+    await assert.rejects(promise, /20MiB以下/);
     assert.ok(c.encodings.every(args => args.length === 1 && args[0] === 'image/png'));
   }
 });

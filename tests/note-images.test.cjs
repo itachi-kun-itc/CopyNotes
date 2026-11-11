@@ -106,8 +106,7 @@ test('image-only shared notes sync, survive blank cleanup and preserve images th
   const big = 'data:image/png;base64,' + Buffer.alloc(images.maxBytes).toString('base64');
   const operations = sharing.operations(Array.from({ length: 8 }, () => sharing.draft('', [big])));
   const batch = sharing.batch(operations);
-  assert.equal(batch.length, 1);
-  assert.ok(Buffer.byteLength(JSON.stringify({ requestId: crypto.randomUUID(), operations: batch })) <= 2 * 1024 * 1024);
+  assert.equal(batch.length, 8, 'large images are budgeted as separate references instead of blocking the queue');
 });
 
 test('API saves image-only notes, enforces the limit atomically, and removes the body after deleting the last image', async t => {
@@ -129,7 +128,7 @@ test('API saves image-only notes, enforces the limit atomically, and removes the
   }
   const send = operations => request('notes', { requestId: crypto.randomUUID(), operations });
   await request('auth', { code: '00123' });
-  const original = 'data:image/png;base64,' + Buffer.alloc(images.maxBytes, 123).toString('base64');
+  const original = 'data:image/png;base64,' + Buffer.alloc(images.inlineBytes, 123).toString('base64');
   const draft = sharing.draft('', [original]);
   assert.equal((await send(sharing.operations([draft]))).status, 200);
   assert.deepEqual((await request('notes')).notes[0].images, [original]);
@@ -140,7 +139,7 @@ test('API saves image-only notes, enforces the limit atomically, and removes the
   assert.equal((await request('notes')).notes.length, 1);
   assert.equal((await send([...sharing.operations([next]), { ...invalid, images: [png], text: 'mixed' }])).status, 400);
   assert.equal((await request('notes')).notes.length, 1);
-  const oversized = 'data:image/png;base64,' + Buffer.alloc(images.maxBytes + 1).toString('base64');
+  const oversized = 'data:image/png;base64,' + Buffer.alloc(images.inlineBytes + 1).toString('base64');
   assert.equal((await send([{ ...invalid, images: [oversized] }])).status, 400);
   assert.deepEqual((await request('notes')).notes[0].images, [original]);
   sharing.update(note, '', false, []);

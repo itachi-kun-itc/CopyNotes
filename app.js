@@ -1,6 +1,6 @@
 "use strict";
 
-(() => {
+(async () => {
   // Keep the app at a fixed scale, including while an input has focus.
   document.addEventListener("keydown", event => {
     if ((event.ctrlKey || event.metaKey) && !event.altKey
@@ -53,12 +53,17 @@
   }
   let statusTimer;
   let storageWarningShown = false;
+  const attachmentStorage = globalThis.indexedDB ? await CopyNotesAttachmentStorage.open({
+    storage: localStorage, indexedDB: globalThis.indexedDB, onError: storageWarning,
+  }) : null;
+  const noteStorage = attachmentStorage || localStorage;
+  const imageTransfer = CopyNotesImageTransfer.create(request);
   let menuRow = null;
   let menuPoint = { x: 0, y: 0 };
   const sharing = CopyNotesSharing;
   const apiBase = (globalThis.CopyNotesConfig?.apiBase || '').replace(/\/$/, '');
   const crossOriginApi = Boolean(apiBase && new URL(apiBase).origin !== location.origin);
-  // GitHub Pages uses a short-lived token only in memory; never in browser storage.
+  // Cross-origin frontends use a short-lived token only in memory.
   let apiSession = '';
   const refreshButton = document.querySelector('#refreshNotes');
   const syncButton = document.querySelector('#syncNotes');
@@ -81,10 +86,7 @@
   const loginSubmit = document.querySelector('#loginSubmit');
   const logoutButton = document.querySelector('#logoutButton');
   const closeLogin = document.querySelector('#closeLogin');
-  const deviceStore = CopyNotesDeviceStorage.create({
-    getItem: key => localStorage.getItem(key),
-    setItem: (key, value) => localStorage.setItem(key, value),
-  }, storageWarning);
+  const deviceStore = CopyNotesDeviceStorage.create(noteStorage, storageWarning);
   let deviceNotes = deviceStore.load();
   let sharedNotes = [];
   let activeTab = 'device';
@@ -149,10 +151,12 @@
   function persistDevice(notes) {
     const merged = deviceStore.save(notes);
     deviceNotes = merged.notes;
-    if (activeTab === 'device' && JSON.stringify(notes) !== JSON.stringify(deviceNotes)) renderNotes(true, merged.preserved);
+    if (activeTab === 'device' && (notes.length !== deviceNotes.length || notes.some((note, index) =>
+      note.id !== deviceNotes[index].id || !CopyNotesImages.equalNote(note, deviceNotes[index])))) renderNotes(true, merged.preserved);
   }
 
   async function refreshDeviceNotes() {
+    await attachmentStorage?.refresh();
     await waitForIdle();
     if (activeTab === 'device') saveNotes();
     else persistDevice(deviceNotes);
@@ -160,16 +164,23 @@
 
   function persistShared() {
     if (!roomId) return;
-    try { localStorage.setItem('copynotes.shared.v4.' + roomId, JSON.stringify(sharedNotes)); }
+    try {
+      if (attachmentStorage) attachmentStorage.setNotes('copynotes.shared.v4.' + roomId, sharedNotes);
+      else noteStorage.setItem('copynotes.shared.v4.' + roomId, JSON.stringify(sharedNotes));
+    }
     catch { storageWarning(); }
   }
 
   function readShared() {
     try {
-      const value = JSON.parse(localStorage.getItem('copynotes.shared.v4.' + roomId) ?? localStorage.getItem('copynotes.shared.v3.' + roomId) ?? localStorage.getItem('copynotes.shared.v2.' + roomId) ?? localStorage.getItem('copynotes.shared.v1.' + roomId) ?? '[]');
+      const parse = key => attachmentStorage ? attachmentStorage.getNotes(key) : JSON.parse(noteStorage.getItem(key) || 'null');
+      const value = parse('copynotes.shared.v4.' + roomId) ?? parse('copynotes.shared.v3.' + roomId) ?? parse('copynotes.shared.v2.' + roomId) ?? parse('copynotes.shared.v1.' + roomId) ?? [];
       if (Array.isArray(value) && value.every(note => note && typeof note.id === 'string' && typeof note.text === 'string' && CopyNotesImages.valid(note.images, 3) && Number.isSafeInteger(note.version) && typeof note.dirty === 'boolean')) {
         const compacted = sharing.compactBlank(sharing.normalizeLegacy(value));
-        try { localStorage.setItem('copynotes.shared.v4.' + roomId, JSON.stringify(compacted)); } catch { storageWarning(); }
+        try {
+          if (attachmentStorage) attachmentStorage.setNotes('copynotes.shared.v4.' + roomId, compacted);
+          else noteStorage.setItem('copynotes.shared.v4.' + roomId, JSON.stringify(compacted));
+        } catch { storageWarning(); }
         return compacted;
       }
     } catch { storageWarning(); }
@@ -216,6 +227,7 @@
 
   function updateWorkspace() {
     const shared = activeTab === 'shared';
+    updateImageButtons();
     document.querySelector('.workspace-tabs').dataset.active = activeTab;
     deviceTab.setAttribute('aria-selected', String(!shared));
     sharedTab.setAttribute('aria-selected', String(shared));
@@ -335,7 +347,7 @@
       const response = await fetch(endpoint, {
         method, credentials: crossOriginApi ? 'omit' : 'same-origin', cache: 'no-store', signal: controller.signal,
         headers: { 'Content-Type': 'application/json',
-          ...(roomId && (path === 'notes' || path === 'auth' && method === 'DELETE') ? { 'X-CopyNotes-Room': roomId } : {}),
+          ...(roomId && (path === 'notes' || path.startsWith('images') || path === 'auth' && method === 'DELETE') ? { 'X-CopyNotes-Room': roomId } : {}),
           ...(crossOriginApi && apiSession ? { Authorization: 'Bearer ' + apiSession } : {}) },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
@@ -373,7 +385,10 @@
     updateWorkspace();
     try {
       if (roomId !== expectedRoom || !authenticated) return false;
-      const data = sent.length ? await request('notes', 'POST', { requestId: crypto.randomUUID(), operations: sent }) : await request('notes');
+      const operations = await imageTransfer.encode(sent, expectedRoom);
+      const data = operations.length ? await request('notes', 'POST', { requestId: crypto.randomUUID(), operations }) : await request('notes');
+      data.notes = await imageTransfer.decode(data.notes, expectedRoom);
+      await attachmentStorage?.retain(data.notes);
       await waitForIdle();
       if (roomId !== expectedRoom || !authenticated) return false;
       const merged = sharing.merge(sharedNotes, data.notes, sent);
@@ -668,7 +683,7 @@
     input.placeholder = pending ? '読み込み中…' : 'テキストを入力…';
     const attachImage = row.querySelector('.attach-image');
     attachImage.hidden = note.text.length > 0 || media;
-    attachImage.disabled = pending || note.text.length > 0 || note.images.length >= CopyNotesImages.maxImages;
+    attachImage.disabled = pending || note.text.length > 0 || note.images.length >= CopyNotesImages.maxImages || imageNoteCount() >= CopyNotesImages.maxImageNotes;
     row.querySelector('.image-count').textContent = `${row.noteImages.length}/${CopyNotesImages.maxImages}`;
   }
 
@@ -685,11 +700,37 @@
     });
   }
 
+  function imageNoteCount() {
+    const ids = new Set();
+    if (activeTab === 'device') {
+      // Read the small metadata directly, including changes from another tab.
+      try {
+        const saved = JSON.parse(localStorage.getItem(CopyNotesDeviceStorage.key) || '[]');
+        for (const note of saved) if (note.images?.length) ids.add(note.id);
+      } catch { /* The normal persistence path reports storage failures. */ }
+    }
+    for (const note of activeTab === 'device' ? deviceNotes : sharedNotes) {
+      if (!note.deleted && note.images?.length) ids.add(note.id);
+    }
+    for (const row of list.children) if (!row.classList.contains('is-removing') && row.noteImages?.length) ids.add(row.dataset.noteId);
+    return ids.size;
+  }
+
+  function updateImageButtons() {
+    const reached = imageNoteCount() >= CopyNotesImages.maxImageNotes;
+    for (const row of list.children) {
+      const button = row.querySelector('.attach-image');
+      button.disabled = reached || Boolean(row.pendingAttachments) || row.noteImages.length > 0 || row.querySelector('textarea').value.length > 0;
+      button.title = reached ? '画像は端末・共有それぞれ3枚までです' : '画像を追加（1枚20MiBまで）';
+    }
+  }
+
   function attachImages(row, files) {
     if (!files.length) return;
     if (files.some(file => !file.type.startsWith('image/'))) { announce('画像のみ添付できます'); return; }
-    const blocked = () => rowContent(row).text.length > 0 || row.noteImages.length >= CopyNotesImages.maxImages;
-    const explain = () => announce(row.noteImages.length >= CopyNotesImages.maxImages ? '画像は1つのメモに1枚までです' : '文字と画像は別々のメモにしてください');
+    const blocked = () => rowContent(row).text.length > 0 || row.noteImages.length >= CopyNotesImages.maxImages || imageNoteCount() >= CopyNotesImages.maxImageNotes;
+    const explain = () => announce(row.noteImages.length >= CopyNotesImages.maxImages ? '画像は1つのメモに1枚までです'
+      : rowContent(row).text.length ? '文字と画像は別々のメモにしてください' : (activeTab === 'device' ? '端末' : '共有') + 'の画像は3枚（3メモ分）までです');
     if (blocked()) { explain(); return; }
     const tab = activeTab;
     preparingImages++;
@@ -701,10 +742,17 @@
         if (blocked()) { explain(); break; }
         try {
           const prepared = await CopyNotesImages.prepare(file);
-          if (!row.isConnected || activeTab !== tab || row.classList.contains('is-removing')) break;
-          if (blocked()) { explain(); break; }
-          row.noteImages.push(prepared);
-          renderImages(row); saveNotes(); autoSync.changed(); added++;
+          if (attachmentStorage) await attachmentStorage.put(prepared);
+          else if (CopyNotesImages.byteLength(prepared) > CopyNotesImages.inlineBytes) throw new Error('大きな画像の保存にはIndexedDBが使えるブラウザが必要です');
+          const commit = async () => {
+            await attachmentStorage?.refresh();
+            if (!row.isConnected || activeTab !== tab || row.classList.contains('is-removing')) return;
+            if (blocked()) { explain(); return; }
+            row.noteImages.push(prepared);
+            renderImages(row); saveNotes(); autoSync.changed(); added++;
+          };
+          if (tab === 'device' && navigator.locks) await navigator.locks.request('copynotes-device-attachments', commit);
+          else await commit();
         } catch (error) { announce(error.message || '添付内容を読み込めませんでした'); }
       }
       if (added && files.length === added) announce('画像を追加しました');
@@ -854,4 +902,9 @@
       compactNotes(); composingInputs.clear(); releaseIdle(); autoSync.pause();
     } else { scheduleResizeNotes(); autoSync.refresh(); }
   });
-})();
+})().catch(error => {
+  const status = document.querySelector('#status');
+  status.textContent = error.message || '保存された画像を読み込めませんでした。再読み込みしてください';
+  status.setAttribute('data-visible', '');
+  document.querySelector('#addNote').disabled = true;
+});

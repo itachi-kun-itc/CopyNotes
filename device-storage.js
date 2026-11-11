@@ -12,7 +12,8 @@ globalThis.CopyNotesDeviceStorage = (() => {
   function create(storage, onError = () => {}) {
     function read() {
       try {
-        const value = JSON.parse(storage.getItem(key) ?? storage.getItem('copynotes.notes.v4') ?? storage.getItem('copynotes.notes.v3') ?? storage.getItem('copynotes.notes.v2') ?? 'null');
+        const parse = name => storage.getNotes ? storage.getNotes(name) : JSON.parse(storage.getItem(name) || 'null');
+        const value = parse(key) ?? parse('copynotes.notes.v4') ?? parse('copynotes.notes.v3') ?? parse('copynotes.notes.v2');
         if (Array.isArray(value) && value.every(note => note && typeof note.id === 'string' && typeof note.text === 'string' && CopyNotesImages.valid(note.images, 3))
           && new Set(value.map(note => note.id)).size === value.length) return clone(value).flatMap(CopyNotesImages.split);
         const legacy = JSON.parse(storage.getItem(legacyKey) || 'null');
@@ -50,8 +51,11 @@ globalThis.CopyNotesDeviceStorage = (() => {
       }
       const notes = [...merged.values()];
       try {
-        const serialized = JSON.stringify(notes);
-        if (storage.getItem(key) !== serialized) storage.setItem(key, serialized);
+        if (storage.setNotes) storage.setNotes(key, notes);
+        else {
+          const serialized = JSON.stringify(notes);
+          if (storage.getItem(key) !== serialized) storage.setItem(key, serialized);
+        }
         baseline = clone(notes);
       } catch {
         // Keep the previous baseline so a later save retries unsaved changes.

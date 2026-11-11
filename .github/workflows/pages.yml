@@ -27,6 +27,7 @@ jobs:
           package-manager-cache: false
       - name: Check and test
         run: |
+          npm ci
           npm run check
           npm test
       - name: Configure Pages
