@@ -114,10 +114,14 @@ body {
   padding-left: env(safe-area-inset-left, 0px);
   padding-right: env(safe-area-inset-right, 0px);
 }
-/* Safari samples actual viewport-edge backgrounds for its status-bar tint. */
+/* Safari samples actual viewport-edge backgrounds for its status-bar tint.
+   WebKit ignores background colors on boxes <= 10px high; an 8px edge leaves
+   the old native tint cached when the safe-area inset is zero (standalone).
+   Keep this solid strip above the backdrop and within the header's padding.
+   See WebCore/page/LocalFrameView.cpp: primaryBackgroundColorForRenderer. */
 .system-bar-background {
   position: fixed; z-index: 1; top: 0; right: 0; left: 0;
-  height: max(8px, var(--overlay-inset-top, 0px), env(safe-area-inset-top, 0px));
+  height: max(16px, var(--overlay-inset-top, 0px), env(safe-area-inset-top, 0px));
   background-color: var(--page);
   pointer-events: none;
 }

@@ -88,7 +88,7 @@ function boot({ clipboard = true, formats = ['image/png', 'text/plain'], indexed
     setTimeout: (callback, delay) => { if (!delay) queueMicrotask(callback); return 1; }, clearTimeout() {}, requestAnimationFrame: callback => { frames.push(callback); return frames.length; },
     getComputedStyle: element => ({
       paddingTop: Math.max(parseFloat(layout.top), parseFloat(document.style['--overlay-notes-top']) || 0) + 'px',
-      height: Math.max(8, parseFloat(layout.inset), parseFloat(document.style['--overlay-inset-top']) || 0) + 'px',
+      height: Math.max(16, parseFloat(layout.inset), parseFloat(document.style['--overlay-inset-top']) || 0) + 'px',
     }),
     AbortController, fetch: async (url, options) => { requests.push({ url, options });
       if (apiFetch) return apiFetch(url, options);
