@@ -1,5 +1,4 @@
 :root {
-  --system-bar-height: max(16px, var(--overlay-inset-top, 0px), env(safe-area-inset-top, 0px));
   --page: #fafaf9; --text: #333633; --surface: #fff; --border: #e5e6e2;
   --muted: #737d6d; --subtle: #8b9385; --focus: #7c8e74; --focus-soft: #616f6110;
   --control-text: #3e504b; --glass-border: #ffffffb8; --glass-inset: #fffffff0; --glass-shine: 1;
@@ -118,11 +117,11 @@ body {
 /* Safari samples actual viewport-edge backgrounds for its status-bar tint.
    WebKit ignores background colors on boxes <= 10px high; an 8px edge leaves
    the old native tint cached when the safe-area inset is zero (standalone).
-   Keep this solid strip above the backdrop; header spacing starts below it.
+   Keep this solid strip above the backdrop and within the header's padding.
    See WebCore/page/LocalFrameView.cpp: primaryBackgroundColorForRenderer. */
 .system-bar-background {
   position: fixed; z-index: 1; top: 0; right: 0; left: 0;
-  height: var(--system-bar-height);
+  height: max(16px, var(--overlay-inset-top, 0px), env(safe-area-inset-top, 0px));
   background-color: var(--page);
   pointer-events: none;
 }
@@ -135,10 +134,9 @@ body::before {
 button, textarea, select { font: inherit; }
 button { -webkit-tap-highlight-color: transparent; }
 .notes {
-  --header-gap: 32px;
   display: flex; flex-direction: column; width: min(100% - 40px, 640px);
   height: 100%; min-height: 0; margin: 0 auto;
-  padding-top: max(var(--overlay-notes-top, 0px), calc(var(--system-bar-height) + var(--header-gap)));
+  padding-top: max(32px, var(--overlay-notes-top, 0px), env(safe-area-inset-top, 0px));
 }
 .toolbar { display: flex; flex-wrap: wrap; flex-shrink: 0; align-items: center; justify-content: space-between; gap: 12px; margin-bottom: 18px; }
 #notesPanel { display: flex; flex: 1; flex-direction: column; min-height: 0; }
@@ -514,7 +512,7 @@ button:active:not(:disabled) { background: var(--pressed); }
 .note-menu button:hover, .note-menu button:focus-visible { background: var(--danger-bg); }
 .note-menu button:focus-visible { outline-offset: -2px; }
 @media (max-width: 480px) {
-  .notes { --header-gap: 20px; width: calc(100% - 32px); }
+  .notes { width: calc(100% - 32px); padding-top: max(20px, var(--overlay-notes-top, 0px), env(safe-area-inset-top, 0px)); }
   .toolbar { gap: 6px; }
   .toolbar-button { padding-inline: 10px; }
   .account-button { padding-inline: 6px; }
