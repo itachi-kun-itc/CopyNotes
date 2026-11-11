@@ -47,11 +47,12 @@ class Element {
   removeAttribute(name) { delete this.attributes[name]; }
   getClientRects() { return []; }
   getAnimations() { return []; }
-  show() { this.open = true; }
+  show() { this.open = true; (this.attributes.autofocus !== undefined ? this : this.querySelector('button') || this).focus(); }
   showModal() { throw new Error('Native modal compositor must not be used'); }
   close() { const wasOpen = this.open; this.open = false; if (wasOpen) this.dispatchEvent({ type: 'close' }); }
   getBoundingClientRect() { return { left: 0, top: 0, right: 360, bottom: 300 }; }
   focus() { this.ownerDocument.activeElement = this; }
+  blur() { if (this.ownerDocument.activeElement === this) this.ownerDocument.activeElement = this.ownerDocument.body; }
   get isConnected() { return this.connected || Boolean(this.parentElement?.isConnected); }
   click() { if (!this.disabled) this.dispatchEvent({ type: 'click' }); }
 }
@@ -63,8 +64,9 @@ function boot({ clipboard = true, formats = ['image/png', 'text/plain'], indexed
   document.createElement = tag => { const element = new Element(tag); element.ownerDocument = document; return element; };
   const html = fs.readFileSync(path.join(__dirname, '../index.html'), 'utf8');
   const nodes = new Map();
-  for (const match of html.matchAll(/<([a-z][a-z0-9]*)\b[^>]*\bid="([^"]+)"/g)) {
+  for (const match of html.matchAll(/<([a-z][a-z0-9]*)\b[^>]*\bid="([^"]+)"[^>]*>/g)) {
     const element = document.createElement(match[1]); element.id = match[2]; nodes.set('#' + element.id, element); document.append(element);
+    if (/\bautofocus(?:\s|=|>)/.test(match[0])) element.setAttribute('autofocus', '');
   }
   for (const name of ['notes', 'notes-scroll', 'workspace-tabs', 'system-bar-background']) { const element = document.createElement('div'); element.className = name; nodes.set('.' + name, element); document.append(element); }
   document.querySelector = selector => nodes.get(selector) || null;
@@ -309,7 +311,8 @@ test('page overlays trap focus, block background interaction and restore the ope
   assert.equal(document.querySelector('.notes').inert, true);
   assert.equal(document.querySelector('#noteMenu').inert, true);
   assert.equal(document.documentElement.dataset.overlayOpen, 'true');
-  assert.equal(document.activeElement, close);
+  assert.equal(document.activeElement, document.body);
+  document.dispatchEvent({ type: 'keydown', key: 'Tab' }); assert.equal(document.activeElement, close);
   document.dispatchEvent({ type: 'keydown', key: 'Tab', shiftKey: true }); assert.equal(document.activeElement, select);
   document.dispatchEvent({ type: 'keydown', key: 'Tab' }); assert.equal(document.activeElement, close);
   select.value = 'mint'; select.dispatchEvent({ type: 'input' });
@@ -322,6 +325,20 @@ test('page overlays trap focus, block background interaction and restore the ope
   assert.equal(document.querySelector('#noteMenu').inert, false);
   assert.equal(document.documentElement.dataset.overlayOpen, undefined);
   assert.equal(document.activeElement, trigger);
+});
+
+test('opening settings, login and logout never leaves a control focused', async () => {
+  for (const authenticated of [false, true]) {
+    const app = boot({ authenticated }); await app.ready; await new Promise(setImmediate);
+    const document = app.context.document;
+    for (const [triggerId, dialogId] of [['#settingsButton', '#settingsDialog'], ['#accountButton', '#loginDialog']]) {
+      const trigger = document.querySelector(triggerId); trigger.focus(); trigger.click();
+      assert.equal(document.querySelector(dialogId).open, true);
+      assert.equal(document.activeElement, document.body);
+      for (const id of ['#closeSettings', '#closeLogin', '#loginNumber', '#logoutButton']) assert.notEqual(document.activeElement, document.querySelector(id));
+      document.querySelector(dialogId).close(); app.flushFrames();
+    }
+  }
 });
 
 test('Escape cannot dismiss an account overlay while authentication is in flight', async () => {

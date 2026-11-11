@@ -131,7 +131,10 @@
       // Avoid the native modal/top-layer compositor: iOS Home Screen apps can
       // freeze their status-bar tint until a showModal() dialog is dismissed.
       dialog.show();
-      (dialog === settingsDialog ? closeSettings : authenticated ? logoutButton : loginNumber).focus({ preventScroll: true });
+      // The dialog's autofocus target is its noninteractive container, so the
+      // browser never selects a button/input or opens the software keyboard.
+      // Clear that transient focus; Tab navigation still starts inside it.
+      if (dialog.contains(document.activeElement)) document.activeElement.blur();
     } catch (error) { returnFocus.delete(dialog); releaseModalLayout(); throw error; }
   }
   for (const dialog of modalDialogs) {

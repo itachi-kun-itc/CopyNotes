@@ -67,7 +67,7 @@
     </section>
   </main>
   <div id="modalBackdrop" class="modal-backdrop" aria-hidden="true" hidden></div>
-  <dialog id="loginDialog" class="login-dialog" aria-modal="true" tabindex="-1" aria-labelledby="loginTitle" aria-describedby="loginHelp">
+  <dialog id="loginDialog" class="login-dialog" aria-modal="true" tabindex="-1" autofocus aria-labelledby="loginTitle" aria-describedby="loginHelp">
     <form id="loginForm">
       <div class="login-heading"><h1 id="loginTitle">ログイン番号</h1><button id="closeLogin" class="dialog-close" type="button" aria-label="閉じる">×</button></div>
       <p id="loginHelp">発行済みの番号を入力してください。同じ番号の端末で共有できます。</p>
@@ -80,7 +80,7 @@
       <button id="logoutButton" class="logout-button" type="button" hidden>ログアウト</button>
     </form>
   </dialog>
-  <dialog id="settingsDialog" class="settings-dialog" aria-modal="true" tabindex="-1" aria-labelledby="settingsTitle">
+  <dialog id="settingsDialog" class="settings-dialog" aria-modal="true" tabindex="-1" autofocus aria-labelledby="settingsTitle">
     <div class="settings-heading"><h2 id="settingsTitle">設定</h2><button id="closeSettings" class="dialog-close" type="button" aria-label="設定を閉じる">×</button></div>
     <label class="settings-label" for="colorTheme">カラーテーマ</label>
     <select id="colorTheme" class="theme-select">
