@@ -119,8 +119,8 @@ body {
 /* Safari samples actual viewport-edge backgrounds for its status-bar tint.
    WebKit ignores background colors on boxes <= 10px high; an 8px edge leaves
    the old native tint cached when the safe-area inset is zero (standalone).
-   Keep the same page glow and exact captured height when an overlay opens.
-   The edge stays above its backdrop so its theme color remains available.
+   Blend into the normal page glow. Overlays hide this decorative edge so the
+   backdrop reaches the top without a separate strip; toolbar spacing is held.
    See WebCore/page/LocalFrameView.cpp: primaryBackgroundColorForRenderer. */
 .system-bar-background {
   position: fixed; z-index: 1; top: 0; right: 0; left: 0;
@@ -129,7 +129,7 @@ body {
   background-image: var(--page-glow);
   pointer-events: none;
 }
-html[data-overlay-open="true"] .system-bar-background { z-index: 102; }
+html[data-overlay-open="true"] .system-bar-background { visibility: hidden; }
 body::before {
   content: ""; position: fixed; z-index: -1; inset: 0; pointer-events: none;
   background: var(--page-glow);
