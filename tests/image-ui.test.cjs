@@ -87,8 +87,8 @@ function boot({ clipboard = true, formats = ['image/png', 'text/plain'], indexed
     sessionStorage: { getItem: key => sessionDisk.get(key) ?? null, setItem: (key, value) => sessionDisk.set(key, value), removeItem: key => sessionDisk.delete(key) },
     setTimeout: (callback, delay) => { if (!delay) queueMicrotask(callback); return 1; }, clearTimeout() {}, requestAnimationFrame: callback => { frames.push(callback); return frames.length; },
     getComputedStyle: element => ({
-      paddingTop: Math.max(parseFloat(layout.top), parseFloat(document.style['--overlay-notes-top']) || 0) + 'px',
-      height: Math.max(16, parseFloat(layout.inset), parseFloat(document.style['--overlay-inset-top']) || 0) + 'px',
+      paddingTop: document.style['--overlay-notes-top'] ?? layout.top,
+      height: document.style['--overlay-inset-top'] ?? Math.max(16, parseFloat(layout.inset)) + 'px',
     }),
     AbortController, fetch: async (url, options) => { requests.push({ url, options });
       if (apiFetch) return apiFetch(url, options);
@@ -332,6 +332,33 @@ test('settings and account overlays preserve header spacing if iOS reduces its s
     assert.equal(document.style['--overlay-notes-top'], undefined);
     assert.equal(document.style['--overlay-inset-top'], undefined);
     assert.equal(app.context.getComputedStyle(document.querySelector('.notes')).paddingTop, '59px');
+  }
+});
+
+test('settings, login and logout retain normal-page top spacing when the safe area grows', async () => {
+  for (const authenticated of [false, true]) for (const trigger of ['#settingsButton', '#accountButton']) {
+    const layout = { top: '20px', inset: '0px' };
+    const app = boot({ layout, authenticated }); await settled(app);
+    const document = app.context.document;
+    document.querySelector(trigger).click();
+    const notes = document.querySelector('.notes'), edge = document.querySelector('.system-bar-background');
+    assert.equal(document.style['--overlay-notes-top'], '20px');
+    assert.equal(document.style['--overlay-inset-top'], '16px');
+    layout.top = '59px'; layout.inset = '59px';
+    assert.equal(app.context.getComputedStyle(notes).paddingTop, '20px');
+    assert.equal(app.context.getComputedStyle(edge).height, '16px');
+    if (trigger === '#settingsButton') {
+      const field = document.querySelector('#colorTheme'); field.value = 'mint'; field.dispatchEvent({ type: 'input' });
+      assert.equal(edge.style.backgroundColor, '#eaf4ee');
+      assert.equal(document.style.backgroundColor, '#eaf4ee');
+      assert.equal(app.context.getComputedStyle(notes).paddingTop, '20px');
+      assert.equal(app.context.getComputedStyle(edge).height, '16px');
+    }
+    document.dispatchEvent({ type: 'keydown', key: 'Escape' });
+    layout.top = '20px'; layout.inset = '0px'; app.flushFrames();
+    assert.equal(app.context.getComputedStyle(notes).paddingTop, '20px');
+    assert.equal(app.context.getComputedStyle(edge).height, '16px');
+    assert.equal(document.style['--overlay-notes-top'], undefined);
   }
 });
 

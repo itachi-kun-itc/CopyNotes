@@ -114,7 +114,8 @@
     if (dialog.open) return;
     const previousFocus = document.activeElement;
     if (!currentModal()) {
-      // Hold header spacing while the on-screen picker or keyboard is active.
+      // Capture exact normal-page geometry before the overlay/picker can grow
+      // or shrink the safe area. CSS uses these values as overrides, not minima.
       const rootStyle = document.documentElement.style;
       rootStyle.setProperty('--overlay-notes-top', getComputedStyle(document.querySelector('.notes')).paddingTop);
       rootStyle.setProperty('--overlay-inset-top', getComputedStyle(document.querySelector('.system-bar-background')).height);
