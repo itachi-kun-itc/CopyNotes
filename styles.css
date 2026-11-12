@@ -1,4 +1,6 @@
 :root {
+  --page-glow: radial-gradient(ellipse 480px 300px at calc(50% - 190px) -60px, var(--glow-a), transparent),
+    radial-gradient(ellipse 400px 240px at calc(50% + 190px) 30px, var(--glow-b), transparent);
   --page: #fafaf9; --text: #333633; --surface: #fff; --border: #e5e6e2;
   --muted: #737d6d; --subtle: #8b9385; --focus: #7c8e74; --focus-soft: #616f6110;
   --control-text: #3e504b; --glass-border: #ffffffb8; --glass-inset: #fffffff0; --glass-shine: 1;
@@ -117,19 +119,20 @@ body {
 /* Safari samples actual viewport-edge backgrounds for its status-bar tint.
    WebKit ignores background colors on boxes <= 10px high; an 8px edge leaves
    the old native tint cached when the safe-area inset is zero (standalone).
-   Keep this solid strip above the backdrop and within the header's padding.
+   Blend the edge into the page glow without changing toolbar spacing. An open
+   overlay uses a solid edge above its backdrop for native color sampling.
    See WebCore/page/LocalFrameView.cpp: primaryBackgroundColorForRenderer. */
 .system-bar-background {
   position: fixed; z-index: 1; top: 0; right: 0; left: 0;
   height: max(16px, var(--overlay-inset-top, 0px), env(safe-area-inset-top, 0px));
   background-color: var(--page);
+  background-image: var(--page-glow);
   pointer-events: none;
 }
-html[data-overlay-open="true"] .system-bar-background { z-index: 102; }
+html[data-overlay-open="true"] .system-bar-background { z-index: 102; background-image: none; }
 body::before {
   content: ""; position: fixed; z-index: -1; inset: 0; pointer-events: none;
-  background: radial-gradient(ellipse 480px 300px at calc(50% - 190px) -60px, var(--glow-a), transparent),
-    radial-gradient(ellipse 400px 240px at calc(50% + 190px) 30px, var(--glow-b), transparent);
+  background: var(--page-glow);
 }
 button, textarea, select { font: inherit; }
 button { -webkit-tap-highlight-color: transparent; }
