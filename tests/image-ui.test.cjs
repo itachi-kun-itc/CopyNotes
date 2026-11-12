@@ -78,8 +78,8 @@ function boot({ clipboard = true, formats = ['image/png', 'text/plain'], indexed
     return row;
   } } };
   const disk = savedDisk || new Map(), downloads = [], copiedImages = [], requests = [], frames = [];
-  let selectTab;
-  const context = vm.createContext({ document, window: new Element('window'), crypto, URL, Blob, atob, Uint8Array,
+  let selectTab, runAutoSync;
+  const context = vm.createContext({ document, window: new Element('window'), crypto, URL, Blob, atob, Uint8Array, TextEncoder,
     navigator: { onLine: true, clipboard: clipboard ? { write: async () => {} } : undefined }, location: { origin },
     ClipboardItem: class { constructor(data) { this.data = data; } static supports(type) { return formats.includes(type); } },
     indexedDB,
@@ -94,7 +94,7 @@ function boot({ clipboard = true, formats = ['image/png', 'text/plain'], indexed
       if (apiFetch) return apiFetch(url, options);
       return { ok: true, headers: { get: () => 'application/json' }, json: async () => String(url).endsWith('/notes') ? { notes: [] } : { authenticated, roomId: authenticated ? 'room' : null } }; },
     CopyNotesTouch: { attach: () => ({ cancel() {}, active: false }) },
-    CopyNotesAutoSync: { create: () => ({ changed() {}, refresh() {}, pause() {} }) },
+    CopyNotesAutoSync: { create: options => { runAutoSync = options.run; return { changed() {}, refresh() {}, pause() {} }; } },
     CopyNotesTabs: { attach: (element, options) => { selectTab = options.onChange; return { sync() {} }; } },
     CopyNotesSyntax: { detect: () => null, tokenize: () => [] },
     CopyNotesLinks: { find: () => [], render: () => document.createElement('span') },
@@ -105,7 +105,7 @@ function boot({ clipboard = true, formats = ['image/png', 'text/plain'], indexed
   context.CopyNotesImages = { ...context.CopyNotesImages, prepare: async file => file.src, copy: async (text, sources) => copiedImages.push([...sources]), download: async sources => downloads.push([...sources]) };
   const ready = vm.runInContext(fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8'), context);
   const list = nodes.get('#noteList');
-  return { ready, tab: index => selectTab(index), row: () => list.children[0], add: () => nodes.get('#addNote').click(), list, disk, sessionDisk, downloads, copiedImages, context, requests,
+  return { ready, tab: index => selectTab(index), runAutoSync: () => runAutoSync(), row: () => list.children[0], add: () => nodes.get('#addNote').click(), list, disk, sessionDisk, downloads, copiedImages, context, requests,
     flushFrames: () => { for (const callback of frames.splice(0)) callback(); } };
 }
 
@@ -236,6 +236,60 @@ test('refresh stays disabled on the device tab and is available only for authent
     app.tab(1); assert.equal(button.disabled, !authenticated);
     app.tab(0); assert.equal(button.disabled, true);
   }
+});
+
+test('manual refresh, sync and background polling keep temporary locks distinct from unavailable toolbar actions', async () => {
+  let pending, finish;
+  const app = boot({ authenticated: true, apiFetch: url => String(url).endsWith('/auth')
+    ? Response.json({ authenticated: true, roomId: 'room' }) : pending || Response.json({ notes: [] }) });
+  await settled(app);
+  const document = app.context.document;
+  app.tab(1);
+  for (const action of ['#refreshNotes', '#syncNotes', 'automatic']) {
+    pending = new Promise(resolve => { finish = resolve; });
+    const before = app.requests.length;
+    const operation = action === 'automatic' ? app.runAutoSync() : document.querySelector(action).click();
+    await until(() => app.requests.length > before);
+    for (const id of ['#accountButton', '#refreshNotes', '#syncNotes']) {
+      const button = document.querySelector(id);
+      assert.equal(button.disabled, true, `${action}: duplicate actions remain blocked`);
+      assert.equal(button.attributes['aria-busy'], 'true', `${action}: the busy style preserves the available appearance`);
+      button.click();
+    }
+    await new Promise(setImmediate);
+    assert.equal(app.requests.length, before + 1);
+    finish(Response.json({ notes: [] })); await operation;
+    await until(() => !document.querySelector('#accountButton').disabled);
+    for (const id of ['#accountButton', '#refreshNotes', '#syncNotes']) {
+      assert.equal(document.querySelector(id).disabled, false);
+      assert.equal(document.querySelector(id).attributes['aria-busy'], 'false');
+    }
+    pending = null;
+  }
+  app.tab(0);
+  pending = new Promise(resolve => { finish = resolve; });
+  const operation = app.runAutoSync();
+  for (const id of ['#refreshNotes', '#syncNotes']) {
+    assert.equal(document.querySelector(id).disabled, true);
+    assert.equal(document.querySelector(id).attributes['aria-busy'], 'false', 'device actions stay unavailable during background work');
+  }
+  assert.equal(document.querySelector('#accountButton').attributes['aria-busy'], 'true');
+  finish(Response.json({ notes: [] })); await operation;
+});
+
+test('expired authentication clears busy styling and leaves shared actions unavailable', async () => {
+  let pending, finish;
+  const app = boot({ authenticated: true, apiFetch: url => String(url).endsWith('/auth')
+    ? Response.json({ authenticated: true, roomId: 'room' }) : pending || Response.json({ notes: [] }) });
+  await settled(app); app.tab(1);
+  pending = new Promise(resolve => { finish = resolve; });
+  const operation = app.runAutoSync();
+  finish(Response.json({ error: 'expired' }, { status: 401 })); await operation;
+  const document = app.context.document;
+  assert.equal(document.querySelector('#accountButton').disabled, false);
+  assert.equal(document.querySelector('#accountButton').textContent, 'ログイン');
+  for (const id of ['#accountButton', '#refreshNotes', '#syncNotes']) assert.equal(document.querySelector(id).attributes['aria-busy'], 'false');
+  for (const id of ['#refreshNotes', '#syncNotes']) assert.equal(document.querySelector(id).disabled, true);
 });
 
 test('theme input repaints the top edge before settings closes or selection change is committed', async () => {

@@ -178,17 +178,21 @@ button { -webkit-tap-highlight-color: transparent; }
   pointer-events: none;
 }
 .toolbar-button svg { display: block; flex-shrink: 0; width: 18px; height: 18px; }
-.toolbar-button:disabled, .account-button:disabled, .login-submit:disabled, .logout-button:disabled {
+/* Network polling temporarily disables controls without changing their glass
+   appearance. Unavailable actions (device tab / signed out) stay muted. */
+.toolbar-button:disabled:not([aria-busy="true"]), .account-button:disabled:not([aria-busy="true"]), .login-submit:disabled, .logout-button:disabled {
   opacity: 1; color: var(--muted); background: var(--page);
   border-color: var(--border); cursor: default; box-shadow: none;
 }
-:is(.toolbar-button, .account-button, .login-submit, .logout-button):disabled::before { opacity: 0; }
+:is(.toolbar-button, .account-button):disabled:not([aria-busy="true"])::before,
+:is(.login-submit, .logout-button):disabled::before { opacity: 0; }
+.toolbar-button[aria-busy="true"], .account-button[aria-busy="true"] { cursor: progress; }
 .toolbar-button:not(:disabled):active, .account-button:not(:disabled):active, .login-submit:not(:disabled):active {
   transform: scale(.96); background: var(--control-active);
   box-shadow: 0 2px 6px #314d5210, inset 0 1px 3px #314d520a;
 }
 @media (hover: hover) {
-  .toolbar-button:hover:not(:disabled), .account-button:hover:not(:disabled), .login-submit:hover:not(:disabled) {
+  .toolbar-button:hover:is(:not(:disabled), [aria-busy="true"]), .account-button:hover:is(:not(:disabled), [aria-busy="true"]), .login-submit:hover:not(:disabled) {
     background: var(--control-hover);
     box-shadow: 0 7px 22px #314d521a, 0 2px 4px #314d5208, inset 0 1px 0 var(--glass-inset);
     transform: translateY(-1px);

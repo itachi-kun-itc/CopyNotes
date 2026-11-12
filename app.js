@@ -314,13 +314,16 @@
     deviceTab.tabIndex = shared ? -1 : 0;
     sharedTab.tabIndex = shared ? 0 : -1;
     document.querySelector('#notesPanel').setAttribute('aria-labelledby', shared ? 'sharedTab' : 'deviceTab');
-    accountButton.textContent = authenticated ? 'ログイン中' : 'ログイン';
+    const accountLabel = authenticated ? 'ログイン中' : 'ログイン';
+    if (accountButton.textContent !== accountLabel) accountButton.textContent = accountLabel;
     accountButton.disabled = busy;
+    accountButton.setAttribute('aria-busy', String(busy));
     refreshButton.disabled = busy || !shared || !authenticated;
+    refreshButton.setAttribute('aria-busy', String(busy && shared && authenticated));
     refreshButton.title = !shared ? '共有タブで更新できます' : authenticated ? '共有内容を取得して空白の入力欄を整理' : 'ログイン後に更新できます';
     syncButton.disabled = busy || !shared || !authenticated;
     syncButton.title = !shared ? '共有タブで同期できます' : authenticated ? '共有タブの変更を送信' : 'ログイン後に同期できます';
-    syncButton.setAttribute('aria-busy', String(busy));
+    syncButton.setAttribute('aria-busy', String(busy && shared && authenticated));
     addButton.disabled = shared && !authenticated;
     sharedTab.disabled = busy && !authenticated;
     tabMotion?.sync();
