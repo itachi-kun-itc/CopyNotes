@@ -178,13 +178,13 @@ button { -webkit-tap-highlight-color: transparent; }
   pointer-events: none;
 }
 .toolbar-button svg { display: block; flex-shrink: 0; width: 18px; height: 18px; }
-/* Network polling temporarily disables controls without changing their glass
-   appearance. Unavailable actions (device tab / signed out) stay muted. */
-.toolbar-button:disabled:not([aria-busy="true"]), .account-button:disabled:not([aria-busy="true"]), .login-submit:disabled, .logout-button:disabled {
+/* Toolbar actions keep the same themed glass even when unavailable or busy. */
+.toolbar-button:disabled { opacity: 1; -webkit-text-fill-color: currentColor; cursor: default; }
+.account-button:disabled:not([aria-busy="true"]), .login-submit:disabled, .logout-button:disabled {
   opacity: 1; color: var(--muted); background: var(--page);
   border-color: var(--border); cursor: default; box-shadow: none;
 }
-:is(.toolbar-button, .account-button):disabled:not([aria-busy="true"])::before,
+.account-button:disabled:not([aria-busy="true"])::before,
 :is(.login-submit, .logout-button):disabled::before { opacity: 0; }
 .toolbar-button[aria-busy="true"], .account-button[aria-busy="true"] { cursor: progress; }
 .toolbar-button:not(:disabled):active, .account-button:not(:disabled):active, .login-submit:not(:disabled):active {
