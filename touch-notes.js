@@ -23,6 +23,7 @@ globalThis.CopyNotesTouch = (() => {
     list.addEventListener("touchstart", event => {
       cancel();
       touchUntil = now() + 10000;
+      if (event.target.closest?.('.reorder-handle')) return;
       const row = event.target.closest(".note-row");
       if (event.touches.length !== 1 || !row || !list.contains(row) || blocked() || selectionActive(row)) return;
       const touch = event.touches[0];

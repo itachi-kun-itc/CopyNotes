@@ -29,6 +29,45 @@ function client(db) {
 const operation = (id, text, baseVersion = 0, deleted = false, mutationId = crypto.randomUUID()) => ({ id, text, baseVersion, deleted, mutationId });
 const sync = (operations, requestId = crypto.randomUUID()) => ({ requestId, operations });
 
+test('manual shared order reaches another session, survives content sync and rejects old retries', async t => {
+  const db = createDatabase(); t.after(() => db.close());
+  const a = client(db), b = client(db), other = client(db);
+  await a('auth', 'POST', { code: '00123' });
+  await b('auth', 'POST', { code: '00123' });
+  await other('auth', 'POST', { code: '99999' });
+  await a('notes', 'POST', sync([operation('a', 'first'), operation('b', 'second'), operation('c', 'third')]));
+  const before = db.prepare('SELECT id, content, version FROM shared_notes ORDER BY id').all().results;
+  const first = { ids: ['c', 'a', 'b'], mutationId: crypto.randomUUID() };
+  const saved = await a('note-order', 'POST', first);
+  assert.equal(saved.status, 200);
+  assert.deepEqual((await b('notes')).body.noteOrder, saved.body.noteOrder);
+  assert.deepEqual(db.prepare('SELECT id, content, version FROM shared_notes ORDER BY id').all().results, before);
+  const second = { ids: ['b', 'c', 'a'], mutationId: crypto.randomUUID() };
+  const newer = await b('note-order', 'POST', second);
+  assert.ok(newer.body.noteOrder.revision > saved.body.noteOrder.revision);
+  assert.deepEqual((await a('note-order', 'POST', first)).body.noteOrder, newer.body.noteOrder);
+  const edited = await a('notes', 'POST', sync([operation('a', 'updated first', 1)]));
+  assert.deepEqual(edited.body.noteOrder.ids, second.ids, 'editing does not reset the manual order');
+  assert.deepEqual((await other('notes')).body.noteOrder.ids, []);
+  assert.deepEqual((await other('notes')).body.notes, []);
+});
+
+test('shared ordering validates IDs, authentication, origin and the active room before writing', async t => {
+  const db = createDatabase(); t.after(() => db.close());
+  const a = client(db);
+  const valid = { ids: ['b', 'a'], mutationId: crypto.randomUUID() };
+  assert.equal((await a('note-order', 'POST', valid)).status, 401);
+  await a('auth', 'POST', { code: '00123' });
+  assert.equal((await a('note-order', 'POST', valid, { 'X-CopyNotes-Room': 'wrong-room' })).status, 401);
+  assert.equal((await a('note-order', 'POST', valid, { Origin: 'https://evil.test' })).status, 403);
+  for (const body of [{}, { ...valid, ids: ['a', 'a'] }, { ...valid, ids: [3] }, { ...valid, ids: ['<script>'] },
+    { ...valid, ids: Array.from({ length: 10001 }, (_, index) => String(index)) }, { ...valid, mutationId: '' }]) {
+    assert.equal((await a('note-order', 'POST', body)).status, 400);
+  }
+  assert.equal(db.prepare('SELECT COUNT(*) AS count FROM shared_note_orders').first().count, 0);
+  assert.equal((await a('note-order', 'POST', valid)).status, 200);
+});
+
 test('stale tabs cannot read, write or log out a different cookie room', async t => {
   const db = createDatabase(); t.after(() => db.close());
   const browser = client(db);

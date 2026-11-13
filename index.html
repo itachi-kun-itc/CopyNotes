@@ -25,6 +25,7 @@
   <script src="device-storage.js" defer></script>
   <script src="auto-sync.js" defer></script>
   <script src="touch-notes.js" defer></script>
+  <script src="reorder-notes.js" defer></script>
   <script src="workspace-tabs.js" defer></script>
   <script src="app.js" defer></script>
 </head>
@@ -104,6 +105,7 @@
   </div>
   <template id="noteTemplate">
     <div class="note-row">
+      <button class="reorder-handle" type="button" title="ドラッグで並べ替え（↑↓キーでも移動）" aria-label="メモを並べ替え"></button>
       <div class="note-content">
         <div class="note-editor">
           <pre class="note-highlight" aria-hidden="true"></pre>

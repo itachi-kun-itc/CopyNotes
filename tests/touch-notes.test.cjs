@@ -24,7 +24,7 @@ function setup(options = {}) {
     getBoundingClientRect: () => ({ width: 320 }),
     contains: target => target === row,
   };
-  row.closest = () => row;
+  row.closest = selector => selector === '.note-row' ? row : null;
   list.contains = target => target === row;
   const deleted = [];
   const touch = CopyNotesTouch.attach(list, { document, now: () => 100, onDelete: (...args) => deleted.push(args), ...options });
@@ -49,6 +49,16 @@ test("short swipes spring back without deleting", () => {
   const h = setup(); h.start(); h.move(180); h.end();
   assert.equal(h.deleted.length, 0); assert.equal(h.row.style.transform, "");
   assert.equal(h.classes.has("is-swiping"), false);
+});
+
+test('touches on the reorder edge never start swipe deletion', () => {
+  const h = setup();
+  const handle = { closest: selector => selector === '.reorder-handle' ? handle : h.row };
+  h.list.fire('touchstart', { target: handle, touches: [h.point(300)] });
+  assert.equal(h.touch.active, false);
+  assert.equal(h.move(0).prevented, false);
+  h.end();
+  assert.equal(h.deleted.length, 0);
 });
 
 test("vertical scrolling, diagonal motion and rightward swipes never delete or block scrolling", () => {

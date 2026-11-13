@@ -30,6 +30,8 @@ class Element {
     return !event.defaultPrevented;
   }
   append(...nodes) { for (const node of nodes) { node.remove(); node.parentElement = this; node.ownerDocument = this.ownerDocument; this.children.push(node); } }
+  insertBefore(node, before) { node.remove(); node.parentElement = this; node.ownerDocument = this.ownerDocument; this.children.splice(before ? this.children.indexOf(before) : this.children.length, 0, node); }
+  get nextElementSibling() { const siblings = this.parentElement?.children || []; return siblings[siblings.indexOf(this) + 1] || null; }
   remove() { if (this.parentElement) this.parentElement.children = this.parentElement.children.filter(node => node !== this); this.parentElement = null; }
   replaceChildren(...nodes) { this.children.forEach(node => { node.parentElement = null; }); this.children = []; this.append(...nodes); }
   matches(selector) {
@@ -72,7 +74,7 @@ function boot({ clipboard = true, formats = ['image/png', 'text/plain'], indexed
   document.querySelector = selector => nodes.get(selector) || null;
   nodes.get('#noteTemplate').content = { firstElementChild: { cloneNode() {
     const row = document.createElement('div'); row.className = 'note-row';
-    for (const [tag, className] of [['pre', 'note-highlight'], ['textarea', 'note-input'], ['button', 'copy-button'], ['button', 'download-button'], ['div', 'note-images'], ['span', 'image-count'], ['button', 'attach-image'], ['input', 'image-input']]) {
+    for (const [tag, className] of [['pre', 'note-highlight'], ['textarea', 'note-input'], ['button', 'reorder-handle'], ['button', 'copy-button'], ['button', 'download-button'], ['div', 'note-images'], ['span', 'image-count'], ['button', 'attach-image'], ['input', 'image-input']]) {
       const child = document.createElement(tag); child.className = className; row.append(child);
     }
     return row;
@@ -85,7 +87,7 @@ function boot({ clipboard = true, formats = ['image/png', 'text/plain'], indexed
     indexedDB,
     localStorage: { get length() { return disk.size; }, key: index => [...disk.keys()][index], getItem: key => disk.get(key) ?? null, setItem: (key, value) => disk.set(key, value) },
     sessionStorage: { getItem: key => sessionDisk.get(key) ?? null, setItem: (key, value) => sessionDisk.set(key, value), removeItem: key => sessionDisk.delete(key) },
-    setTimeout: (callback, delay) => { if (!delay) queueMicrotask(callback); return 1; }, clearTimeout() {}, requestAnimationFrame: callback => { frames.push(callback); return frames.length; },
+    setTimeout: (callback, delay) => { if (!delay) queueMicrotask(callback); return 1; }, clearTimeout() {}, requestAnimationFrame: callback => { frames.push(callback); return frames.length; }, cancelAnimationFrame() {},
     getComputedStyle: element => ({
       paddingTop: document.style['--overlay-notes-top'] ?? layout.top,
       height: document.style['--overlay-inset-top'] ?? Math.max(16, parseFloat(layout.inset)) + 'px',
@@ -100,17 +102,96 @@ function boot({ clipboard = true, formats = ['image/png', 'text/plain'], indexed
     CopyNotesLinks: { find: () => [], render: () => document.createElement('span') },
     CopyNotesLimits: { attach() {} }, CopyNotesEditor: { attach() {} },
   });
-  for (const file of ['app-config.js', 'theme.js', 'note-images.js', 'attachment-storage.js', 'image-transfer.js', 'sharing.js', 'device-storage.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'), context);
+  for (const file of ['app-config.js', 'theme.js', 'note-images.js', 'attachment-storage.js', 'image-transfer.js', 'sharing.js', 'device-storage.js', 'reorder-notes.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'), context);
   if (config) context.CopyNotesConfig = config;
   context.CopyNotesImages = { ...context.CopyNotesImages, prepare: async file => file.src, copy: async (text, sources) => copiedImages.push([...sources]), download: async sources => downloads.push([...sources]) };
   const ready = vm.runInContext(fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8'), context);
   const list = nodes.get('#noteList');
   return { ready, tab: index => selectTab(index), runAutoSync: () => runAutoSync(), row: () => list.children[0], add: () => nodes.get('#addNote').click(), list, disk, sessionDisk, downloads, copiedImages, context, requests,
-    flushFrames: () => { for (const callback of frames.splice(0)) callback(); } };
+    flushFrames: (time = 0) => { for (const callback of frames.splice(0)) callback(time); } };
 }
 
 const photo = { type: 'image/png', src: 'data:image/png;base64,aGVsbG8=' };
 function paste(row, files) { row.querySelector('textarea').dispatchEvent({ type: 'paste', clipboardData: { files } }); }
+
+async function reorderFixture() {
+  const app = boot(); await settled(app);
+  for (let index = 0; index < 3; index++) {
+    if (index) app.add();
+    const input = app.list.children[index].querySelector('textarea');
+    input.value = ['first', 'second', 'third'][index]; input.dispatchEvent({ type: 'input' });
+  }
+  app.context.document.visibilityState = 'visible';
+  for (const row of app.list.children) row.getBoundingClientRect = () => {
+    const top = 60 + app.list.children.indexOf(row) * 120;
+    return { left: 10, width: 320, height: 100, top, bottom: top + 100 };
+  };
+  return app;
+}
+const noteTexts = app => Array.from(app.list.children, row => row.querySelector('textarea').value);
+
+test('mouse, touch and pen reorder only from the edge handle and persist after reload', async () => {
+  for (const pointerType of ['mouse', 'touch', 'pen']) {
+    const app = await reorderFixture();
+    const row = app.row(), handle = row.querySelector('.reorder-handle');
+    const document = app.context.document;
+    handle.dispatchEvent({ type: 'pointerdown', button: 0, isPrimary: true, pointerId: 1, pointerType, clientX: 300, clientY: 62 });
+    document.dispatchEvent({ type: 'pointermove', cancelable: true, pointerId: 1, clientX: 300, clientY: 410 });
+    assert.equal(row.classList.contains('is-reordering'), true);
+    assert.deepEqual(noteTexts(app), ['first', 'second', 'third'], 'the destination is a preview until release');
+    document.dispatchEvent({ type: 'pointerup', pointerId: 1, clientY: 410 });
+    assert.deepEqual(noteTexts(app), ['second', 'third', 'first']);
+    assert.equal(row.classList.contains('is-reordering'), false);
+    assert.equal(app.context.document.activeElement, handle);
+    const reloaded = boot({ savedDisk: app.disk }); await settled(reloaded);
+    assert.deepEqual(noteTexts(reloaded), ['second', 'third', 'first']);
+    const input = app.row().querySelector('textarea'); input.value += ' edited'; input.dispatchEvent({ type: 'input' });
+    assert.deepEqual(noteTexts(app), ['second edited', 'third', 'first'], 'typing preserves manual order');
+    assert.equal(app.requests.some(request => request.options.method === 'POST'), false, 'device order stays local');
+  }
+});
+
+test('drag cancellation, secondary pointers and ordinary editing leave note order intact', async () => {
+  for (const ending of ['pointercancel', 'Escape', 'second-pointer', 'blur']) {
+    const app = await reorderFixture(), document = app.context.document;
+    const handle = app.row().querySelector('.reorder-handle');
+    handle.dispatchEvent({ type: 'pointerdown', button: 0, pointerId: 1, clientX: 300, clientY: 62 });
+    document.dispatchEvent({ type: 'pointermove', pointerId: 1, clientX: 300, clientY: 410 });
+    if (ending === 'Escape') document.dispatchEvent({ type: 'keydown', key: 'Escape' });
+    else if (ending === 'second-pointer') document.dispatchEvent({ type: 'pointerdown', pointerId: 2 });
+    else if (ending === 'blur') app.context.window.dispatchEvent({ type: 'blur' });
+    else document.dispatchEvent({ type: ending, pointerId: 1 });
+    document.dispatchEvent({ type: 'pointerup', pointerId: 1, clientY: 410 });
+    assert.deepEqual(noteTexts(app), ['first', 'second', 'third']);
+    assert.equal(app.row().classList.contains('is-reordering'), false);
+  }
+  const app = await reorderFixture(), document = app.context.document;
+  app.row().querySelector('textarea').dispatchEvent({ type: 'pointerdown', button: 0, pointerId: 1, clientY: 62 });
+  document.dispatchEvent({ type: 'pointermove', pointerId: 1, clientX: 300, clientY: 410 });
+  document.dispatchEvent({ type: 'pointerup', pointerId: 1, clientY: 410 });
+  assert.deepEqual(noteTexts(app), ['first', 'second', 'third']);
+});
+
+test('edge dragging scrolls the note viewport and keyboard reordering retains focus and labels', async () => {
+  const app = await reorderFixture(), document = app.context.document;
+  const scroller = document.querySelector('.notes-scroll');
+  scroller.getBoundingClientRect = () => ({ top: 50, bottom: 350, height: 300 });
+  app.flushFrames();
+  const handle = app.row().querySelector('.reorder-handle');
+  handle.dispatchEvent({ type: 'pointerdown', button: 0, pointerId: 1, clientX: 300, clientY: 62 });
+  document.dispatchEvent({ type: 'pointermove', pointerId: 1, clientX: 300, clientY: 348 });
+  app.flushFrames(0); app.flushFrames(16);
+  assert.ok(scroller.scrollTop > 0);
+  document.dispatchEvent({ type: 'keydown', key: 'Escape' });
+  handle.dispatchEvent({ type: 'keydown', key: 'ArrowDown' });
+  assert.deepEqual(noteTexts(app), ['second', 'first', 'third']);
+  assert.equal(document.activeElement, handle);
+  assert.match(handle.attributes['aria-label'], /メモ 2/);
+  handle.dispatchEvent({ type: 'keydown', key: 'End' });
+  assert.deepEqual(noteTexts(app), ['second', 'third', 'first']);
+  handle.dispatchEvent({ type: 'keydown', key: 'Home' });
+  assert.deepEqual(noteTexts(app), ['first', 'second', 'third']);
+});
 
 // Model layout's scroll-range clamping when an auto-sized textarea temporarily
 // collapses to one row. The DOM adapter otherwise has no layout engine.
@@ -506,7 +587,7 @@ async function authFixture(t, origin = 'http://127.0.0.1:5500', config) {
   db.batch(admin.prepare(db, admin.issue('00123')));
   const sessionDisk = new Map();
   let offline = false;
-  const create = () => boot({ origin, sessionDisk, config, apiFetch: (url, options) => {
+  const create = (options = {}) => boot({ origin, sessionDisk, config, ...options, apiFetch: (url, options) => {
     if (offline) throw new TypeError('offline');
     return handleApi(new Request(url, { ...options, headers: { ...options.headers, Origin: origin, 'Sec-Fetch-Site': 'cross-site' } }), { DB: db });
   } });
@@ -523,6 +604,36 @@ async function login(app) {
   document.querySelector('#loginForm').dispatchEvent({ type: 'submit' });
   await until(() => document.querySelector('#accountButton').textContent === 'ログイン中' && !document.querySelector('#accountButton').disabled);
 }
+
+test('shared ordering travels between two app sessions, survives edits and retries after offline reload', async t => {
+  const fixture = await authFixture(t);
+  const a = fixture.create(); await login(a); a.tab(1);
+  for (const text of ['first', 'second', 'third']) {
+    a.add(); const input = a.list.children.at(-1).querySelector('textarea');
+    input.value = text; input.dispatchEvent({ type: 'input' });
+  }
+  await a.runAutoSync();
+  const b = fixture.create({ sessionDisk: new Map() }); await login(b); await b.runAutoSync();
+  assert.deepEqual(noteTexts(b), ['first', 'second', 'third']);
+  a.row().querySelector('.reorder-handle').dispatchEvent({ type: 'keydown', key: 'End' });
+  assert.deepEqual(noteTexts(a), ['second', 'third', 'first']);
+  await a.runAutoSync(); await b.runAutoSync();
+  assert.deepEqual(noteTexts(b), ['second', 'third', 'first']);
+  const input = b.row().querySelector('textarea');
+  input.value = 'second edited'; input.dispatchEvent({ type: 'input' });
+  await b.runAutoSync(); await a.runAutoSync();
+  assert.deepEqual(noteTexts(a), ['second edited', 'third', 'first']);
+
+  fixture.setOffline(true);
+  a.row().querySelector('.reorder-handle').dispatchEvent({ type: 'keydown', key: 'End' });
+  assert.equal(await a.runAutoSync(), false);
+  const reloaded = fixture.create({ savedDisk: a.disk }); await settled(reloaded);
+  fixture.setOffline(false);
+  // Reauthenticate after the failed reload, retaining the original room's draft order.
+  await login(reloaded); reloaded.tab(1); await reloaded.runAutoSync(); await b.runAutoSync();
+  assert.deepEqual(noteTexts(reloaded), ['third', 'first', 'second edited']);
+  assert.deepEqual(noteTexts(b), ['third', 'first', 'second edited']);
+});
 
 test('local 5500 reloads restore a real bearer session, and logout clears it', async t => {
   for (const origin of ['http://localhost:5500', 'http://127.0.0.1:5500', 'http://[::1]:5500']) {

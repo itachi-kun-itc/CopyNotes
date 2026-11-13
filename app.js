@@ -168,6 +168,7 @@
     }
   }, { capture: true });
   const deviceStore = CopyNotesDeviceStorage.create(noteStorage, storageWarning);
+  const noteOrder = CopyNotesReorder.createOrderStore(localStorage, storageWarning);
   let deviceNotes = deviceStore.load();
   let sharedNotes = [];
   let activeTab = 'device';
@@ -183,24 +184,37 @@
   let backgroundSync = false;
   const touch = CopyNotesTouch.attach(list, {
     onDelete: (row, swipe) => deleteNote(row, swipe), onIdle: releaseIdle,
-    blocked: () => removingCount > 0,
+    blocked: () => removingCount > 0 || reorder.active,
     selectionActive: row => {
       const input = row.querySelector('textarea');
       return composingInputs.has(input) || document.activeElement === input && input.selectionStart !== input.selectionEnd;
     },
   });
+  function orderWorkspace(tab = activeTab) { return tab === 'device' ? 'device' : 'shared.' + roomId; }
+  const reorder = CopyNotesReorder.attach(list, notesScroller, {
+    onStart: () => { touch.cancel(); closeMenu(); },
+    onChange: (row, index) => {
+      noteOrder.save(orderWorkspace(), Array.from(list.children, item => item.dataset.noteId));
+      labelNotes(); saveNotes();
+      autoSync.changed();
+      announce(`メモを${index + 1}番目に移動しました`);
+    },
+    onIdle: releaseIdle,
+    blocked: () => removingCount > 0 || composingInputs.size > 0 || preparingImages > 0 || touch.active || busy && !backgroundSync,
+  });
   const autoSync = CopyNotesAutoSync.create({
     run: () => cloudAction(true, false, true),
     enabled: () => authenticated && document.visibilityState !== 'hidden' && navigator.onLine !== false
-      && (activeTab === 'shared' || pendingOperations().length > 0),
+      && (activeTab === 'shared' || pendingOperations().length > 0 || pendingOrder()),
     ready: () => !busy && !interactionActive(),
-    hasChanges: () => pendingOperations().length > 0,
+    hasChanges: () => pendingOperations().length > 0 || Boolean(pendingOrder()),
   });
 
   function pendingOperations() {
     return sharing.operations(sharedNotes.filter(note => note.version || note.deleted || note.pendingMutationId || !CopyNotesImages.isBlank(note)));
   }
-  function interactionActive() { return preparingImages > 0 || composingInputs.size > 0 || touch.active || removingCount > 0; }
+  function pendingOrder() { return roomId ? noteOrder.pending(orderWorkspace('shared')) : null; }
+  function interactionActive() { return preparingImages > 0 || composingInputs.size > 0 || touch.active || reorder.active || removingCount > 0; }
   function releaseIdle() {
     // compositionend can precede the final input event; merge after both.
     setTimeout(() => {
@@ -231,7 +245,7 @@
 
   function persistDevice(notes) {
     const merged = deviceStore.save(notes);
-    deviceNotes = merged.notes;
+    deviceNotes = noteOrder.apply(merged.notes, orderWorkspace('device'));
     if (activeTab === 'device' && (notes.length !== deviceNotes.length || notes.some((note, index) =>
       note.id !== deviceNotes[index].id || !CopyNotesImages.equalNote(note, deviceNotes[index])))) renderNotes(true, merged.preserved);
   }
@@ -342,11 +356,12 @@
       : '発行済みの番号を入力してください。同じ番号の端末で共有できます。';
     sharingLogin.hidden = !shared || authenticated;
     syncStatus.hidden = !shared;
-    const pending = pendingOperations().length;
-    syncStatus.textContent = cloudMessage || (busy && !backgroundSync ? '接続中…' : !authenticated ? '5桁の番号でログインして共有' : pending ? '自動同期待ち ' + pending + '件' : '自動同期 · 同期した順に表示');
+    const pending = pendingOperations().length + Number(Boolean(pendingOrder()));
+    syncStatus.textContent = cloudMessage || (busy && !backgroundSync ? '接続中…' : !authenticated ? '5桁の番号でログインして共有' : pending ? '自動同期待ち ' + pending + '件' : '自動同期');
   }
 
   function renderNotes(restoreFocus = false, preserved = []) {
+    reorder.cancel();
     const focused = restoreFocus && document.activeElement?.matches('textarea') && list.contains(document.activeElement) ? document.activeElement : null;
     for (const [previousId, nextId] of preserved) {
       const row = Array.from(list.children).find(item => item.dataset.noteId === previousId);
@@ -360,7 +375,7 @@
     cancelPress(); closeMenu();
     if (restoreFocus && (activeTab === 'device' || authenticated)) {
       const existing = new Map(Array.from(list.children, row => [row.dataset.noteId, row]));
-      const visible = activeTab === 'device' ? deviceNotes : sharedNotes.filter(note => !note.deleted);
+      const visible = noteOrder.apply(activeTab === 'device' ? deviceNotes : sharedNotes.filter(note => !note.deleted), orderWorkspace());
       visible.forEach((note, index) => {
         let row = existing.get(note.id);
         existing.delete(note.id);
@@ -379,13 +394,13 @@
         if (list.children[index] !== row) list.insertBefore(row, list.children[index] || null);
       });
       existing.forEach(row => { if (!row.classList.contains('is-removing')) row.remove(); });
-      labelNotes();
     } else {
       for (const row of list.children) row.getAnimations?.().forEach(animation => animation.cancel());
       list.replaceChildren();
-      if (activeTab === 'device') deviceNotes.forEach(note => addNote(note.text, note));
-      else if (authenticated) sharedNotes.filter(note => !note.deleted).forEach(note => addNote(note.text, note));
+      if (activeTab === 'device') noteOrder.apply(deviceNotes, orderWorkspace()).forEach(note => addNote(note.text, note));
+      else if (authenticated) noteOrder.apply(sharedNotes.filter(note => !note.deleted), orderWorkspace()).forEach(note => addNote(note.text, note));
     }
+    labelNotes();
     updateWorkspace();
     if (focusId) {
       const row = Array.from(list.children).find(row => row.dataset.noteId === focusId);
@@ -404,6 +419,7 @@
 
   function setTab(tab) {
     if (tab === activeTab) return;
+    reorder.cancel();
     saveNotes();
     activeTab = tab;
     renderNotes();
@@ -430,7 +446,7 @@
       const response = await fetch(endpoint, {
         method, credentials: crossOriginApi ? 'omit' : 'same-origin', cache: 'no-store', signal: controller.signal,
         headers: { 'Content-Type': 'application/json',
-          ...(roomId && (path === 'notes' || path.startsWith('images') || path === 'auth' && method === 'DELETE') ? { 'X-CopyNotes-Room': roomId } : {}),
+          ...(roomId && (path === 'notes' || path === 'note-order' || path.startsWith('images') || path === 'auth' && method === 'DELETE') ? { 'X-CopyNotes-Room': roomId } : {}),
           ...(crossOriginApi && apiSession ? { Authorization: 'Bearer ' + apiSession } : {}) },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
@@ -464,6 +480,7 @@
     saveNotes();
     const expectedRoom = roomId;
     const sent = synchronize ? sharing.batch(pendingOperations()) : [];
+    const sentOrder = synchronize ? pendingOrder() : null;
     sent.forEach(note => inFlightIds.add(note.id));
     if (sent.length) {
       const byId = new Map(sharedNotes.map(note => [note.id, note]));
@@ -478,10 +495,12 @@
       if (roomId !== expectedRoom || !authenticated) return false;
       const operations = await imageTransfer.encode(sent, expectedRoom);
       const data = operations.length ? await request('notes', 'POST', { requestId: crypto.randomUUID(), operations }) : await request('notes');
+      if (sentOrder) data.noteOrder = (await request('note-order', 'POST', sentOrder)).noteOrder;
       data.notes = await imageTransfer.decode(data.notes, expectedRoom);
       await attachmentStorage?.retain(data.notes);
       await waitForIdle();
       if (roomId !== expectedRoom || !authenticated) return false;
+      noteOrder.merge(orderWorkspace('shared'), data.noteOrder, sentOrder);
       const merged = sharing.merge(sharedNotes, data.notes, sent);
       sharedNotes = merged.notes;
       if (compactRemoteBlanks) {
@@ -639,11 +658,12 @@
     Array.from(list.children).forEach((row, index) => {
       row.querySelector("textarea").setAttribute("aria-label", `コピーするテキスト ${index + 1}`);
       row.querySelector(".copy-button").setAttribute("aria-label", `メモ ${index + 1} をコピー`);
+      row.querySelector('.reorder-handle').setAttribute('aria-label', `メモ ${index + 1} を並べ替え（↑↓キーでも移動）`);
     });
   }
 
   async function deleteNote(row, swipe = false, restoreFocus = false) {
-    if (!row?.isConnected || removingCount > 0 || row.classList.contains('is-removing')) return;
+    if (!row?.isConnected || removingCount > 0 || reorder.active || row.classList.contains('is-removing')) return;
     const expectedTab = activeTab;
     const next = row.nextElementSibling || row.previousElementSibling;
     row.classList.add('is-removing');
@@ -895,6 +915,7 @@
     input.setAttribute("aria-controls", "noteMenu");
     input.setAttribute("aria-label", `コピーするテキスト ${number}`);
     button.setAttribute("aria-label", `メモ ${number} をコピー`);
+    row.querySelector('.reorder-handle').setAttribute('aria-label', `メモ ${number} を並べ替え（↑↓キーでも移動）`);
     updateNoteState(row);
     CopyNotesLimits.attach(input);
     CopyNotesEditor.attach(input);
@@ -989,6 +1010,9 @@
   window.addEventListener('focus', () => { refreshDeviceNotes(); autoSync.refresh(); });
   window.addEventListener('storage', event => {
     if (event.key === CopyNotesDeviceStorage.key || event.key === null) refreshDeviceNotes();
+    if (event.key === CopyNotesReorder.orderPrefix + orderWorkspace() || event.key === null) {
+      waitForIdle().then(() => renderNotes(true));
+    }
   });
   document.addEventListener('visibilitychange', () => {
     if (document.visibilityState === 'hidden') {

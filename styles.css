@@ -315,6 +315,7 @@ button { -webkit-tap-highlight-color: transparent; }
 }
 .note-list { display: flex; flex-direction: column; gap: 12px; }
 .note-row {
+  position: relative;
   display: flex;
   min-height: 0;
   touch-action: pan-y;
@@ -360,6 +361,32 @@ button { -webkit-tap-highlight-color: transparent; }
 .attach-image:disabled { opacity: .45; cursor: default; }
 .note-input:read-only::placeholder { font-size: 13px; }
 .note-actions { display: flex; flex-direction: column; flex-shrink: 0; gap: 4px; }
+.reorder-handle {
+  position: absolute; z-index: 2; top: -1px; right: -1px;
+  width: 24px; height: 24px; padding: 0; border: 0; border-radius: 0 14px 0 0;
+  clip-path: polygon(0 0, 100% 0, 100% 100%);
+  background: var(--muted); opacity: .25;
+  cursor: grab; touch-action: none; -webkit-touch-callout: none;
+}
+.reorder-handle:hover, .reorder-handle:focus-visible { opacity: .7; background: var(--focus); }
+.note-row .reorder-handle:active, .is-reordering .reorder-handle { cursor: grabbing; background: var(--focus); opacity: .85; }
+.note-row.is-reordering { opacity: .35; border-style: dashed; }
+.is-reordering-list, .is-reordering-list * { cursor: grabbing !important; }
+.reorder-before::before, .reorder-after::after {
+  content: ""; position: absolute; z-index: 3; left: 0; right: 0; height: 4px;
+  border-radius: 2px; background: var(--focus); pointer-events: none;
+}
+.reorder-before::before { top: -4px; }
+.reorder-after::after { bottom: -4px; }
+.note-drag-preview {
+  position: fixed; z-index: 110; height: 48px; padding: 13px 16px 13px 42px;
+  border: 2px solid var(--focus); border-radius: 12px; background: var(--surface); color: var(--text);
+  box-shadow: 0 8px 24px #0003; opacity: .96; overflow: hidden; white-space: nowrap; text-overflow: ellipsis;
+  font: inherit; font-size: 14px; line-height: 18px; pointer-events: none;
+}
+.note-drag-preview::before { content: "↕"; position: absolute; left: 16px; font-size: 20px; color: var(--muted); }
+.is-code .reorder-handle { background: #a5a5a5; }
+.is-code .reorder-handle:hover, .is-code .reorder-handle:focus-visible { background: #569cd6; }
 .note-row:not(.has-attachment) .note-actions { align-self: flex-start; }
 .is-code .image-tools { color: #a5a5a5; }
 @media (max-width: 480px) { .note-image img { height: 120px; } }
