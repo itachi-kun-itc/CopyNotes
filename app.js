@@ -580,11 +580,15 @@
 
   function resize(input) {
     if (!input.isConnected || !input.getClientRects().length || input.closest('.is-removing')) return;
+    const scrollTop = notesScroller.scrollTop;
     const previousHeight = input.style.height;
     input.style.height = "auto";
     const height = input.scrollHeight;
     input.style.height = height > 0 ? `${Math.ceil(height) + 1}px` : previousHeight;
     input.scrollTop = 0;
+    // Measuring at "auto" can temporarily shrink the list and clamp its scroll
+    // position. Restore it after layout has the final height (also when typing).
+    notesScroller.scrollTop = scrollTop;
   }
 
   function scheduleResizeNotes() {

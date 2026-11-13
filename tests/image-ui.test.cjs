@@ -112,6 +112,57 @@ function boot({ clipboard = true, formats = ['image/png', 'text/plain'], indexed
 const photo = { type: 'image/png', src: 'data:image/png;base64,aGVsbG8=' };
 function paste(row, files) { row.querySelector('textarea').dispatchEvent({ type: 'paste', clipboardData: { files } }); }
 
+// Model layout's scroll-range clamping when an auto-sized textarea temporarily
+// collapses to one row. The DOM adapter otherwise has no layout engine.
+function textareaLayout(app, viewportHeight) {
+  const scroller = app.context.document.querySelector('.notes-scroll');
+  const inputs = app.list.children.map(row => row.querySelector('textarea'));
+  let scrollTop = 0;
+  const maxScroll = () => Math.max(0, inputs.reduce((total, input) => total + (parseFloat(input.style.height) || 42) + 64, 0)
+    + (inputs.length - 1) * 12 - viewportHeight);
+  const clamp = () => { scrollTop = Math.min(scrollTop, maxScroll()); };
+  Object.defineProperty(scroller, 'scrollTop', {
+    get: () => scrollTop,
+    set: value => { scrollTop = Math.max(0, value); clamp(); },
+  });
+  for (const input of inputs) {
+    let height = input.style.height;
+    Object.defineProperty(input.style, 'height', {
+      get: () => height,
+      set: value => { height = value; clamp(); },
+    });
+    input.getClientRects = () => [{}];
+    Object.defineProperty(input, 'scrollHeight', { get: () => { clamp(); return input.value.split('\n').length * 26 + 16; } });
+  }
+  return { inputs, scroller, maxScroll };
+}
+
+test('typing and newlines in the second overflowing note preserve the list scroll position', async () => {
+  const app = boot(); await app.ready; app.add(); app.flushFrames();
+  const { inputs, scroller, maxScroll } = textareaLayout(app, 500);
+  for (const [index, input] of inputs.entries()) {
+    input.value = Array(index ? 12 : 8).fill('メモ').join('\n');
+    input.dispatchEvent({ type: 'input' });
+  }
+  const input = inputs[1]; input.focus();
+  scroller.scrollTop = maxScroll();
+  const previousTop = scroller.scrollTop;
+  assert.ok(previousTop > 0, 'the notes have begun scrolling');
+  for (const text of ['a', 'あ', '\n', '続き', '\n']) {
+    input.value += text;
+    input.dispatchEvent({ type: 'input' });
+    assert.equal(scroller.scrollTop, previousTop, 'resizing must not jump upwards');
+  }
+  app.flushFrames();
+  assert.equal(scroller.scrollTop, previousTop, 'deferred resizing also preserves the viewport');
+
+  // A genuinely shorter note must still shrink and clamp to the new scroll range.
+  input.value = '短いメモ'; input.dispatchEvent({ type: 'input' });
+  assert.equal(input.style.height, '43px');
+  assert.equal(scroller.scrollTop, maxScroll());
+  assert.equal(maxScroll(), 0);
+});
+
 test('app refuses images in text notes and limits images to one across overlapping paste events', async () => {
   const app = boot(); const textRow = app.row(), text = textRow.querySelector('textarea');
   text.value = 'keep my text'; text.dispatchEvent({ type: 'input' });
