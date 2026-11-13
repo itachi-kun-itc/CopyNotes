@@ -32,6 +32,9 @@ const files = new Map([
   ["/workspace-tabs.js", ["workspace-tabs.js", "text/javascript; charset=utf-8"]],
   ["/manifest.json", ["manifest.json", "application/manifest+json; charset=utf-8"]],
   ["/assets/icon.svg", ["assets/icon.svg", "image/svg+xml"]],
+  ["/assets/vendor/libphonenumber-max.js", ["assets/vendor/libphonenumber-max.js", "text/javascript; charset=utf-8"]],
+  ["/assets/vendor/libphonenumber-LICENSE.txt", ["assets/vendor/libphonenumber-LICENSE.txt", "text/plain; charset=utf-8"]],
+  ["/assets/vendor/libphonenumber-LICENSE-Apache.txt", ["assets/vendor/libphonenumber-LICENSE-Apache.txt", "text/plain; charset=utf-8"]],
 ]);
 
 http.createServer(async (request, response) => {
