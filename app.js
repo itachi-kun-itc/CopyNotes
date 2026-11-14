@@ -376,8 +376,9 @@
     document.querySelector('#notesPanel').setAttribute('aria-labelledby', activeTab + 'Tab');
     const accountLabel = authenticated ? 'ログイン中' : 'ログイン';
     if (accountButton.textContent !== accountLabel) accountButton.textContent = accountLabel;
-    accountButton.disabled = busy;
-    accountButton.setAttribute('aria-busy', String(busy));
+    accountButton.disabled = busy || !shared;
+    accountButton.setAttribute('aria-busy', String(busy && shared));
+    accountButton.title = !shared ? '共有・グループタブでログイン・ログアウトできます' : authenticated ? workspaceLabel + 'からログアウト' : 'ログイン';
     refreshButton.disabled = busy || !shared || !authenticated;
     refreshButton.setAttribute('aria-busy', String(busy && shared && authenticated));
     refreshButton.title = !shared ? '共有・グループタブで更新できます' : authenticated ? workspaceLabel + 'の内容を取得して空白の入力欄を整理' : 'ログイン後に更新できます';
@@ -389,8 +390,9 @@
     sharedTab.disabled = busy;
     groupTab.disabled = busy;
     tabMotion?.sync();
-    loginSubmit.disabled = busy;
-    logoutButton.disabled = busy;
+    loginSubmit.disabled = busy || !shared;
+    logoutButton.disabled = busy || !shared;
+    document.querySelector('#sharingLoginButton').disabled = busy || !shared;
     closeLogin.disabled = busy;
     logoutButton.hidden = !authenticated;
     loginFields.hidden = authenticated;
@@ -481,7 +483,7 @@
   }
 
   function openLogin() {
-    if (busy) return;
+    if (busy || activeTab === 'device') return;
     loginError.textContent = '';
     loginNumber.value = '';
     openModal(loginDialog);
@@ -664,7 +666,7 @@
   refreshDetection();
   loginForm.addEventListener('submit', async event => {
     event.preventDefault();
-    if (busy || authenticated) return;
+    if (busy || authenticated || activeTab === 'device') return;
     const code = loginNumber.value.toUpperCase();
     if (!/^(?:[0-9]{5}|G[0-9]{4})$/.test(code)) { loginError.textContent = '通常番号は数字5桁、グループ番号はG＋数字4桁で入力してください'; return; }
     busy = true; updateWorkspace();
@@ -683,7 +685,7 @@
     if (success) await cloudAction(false, true);
   });
   logoutButton.addEventListener('click', async () => {
-    if (busy) return;
+    if (busy || activeTab === 'device') return;
     saveNotes(); busy = true; updateWorkspace();
     try {
       await request('auth', 'DELETE');

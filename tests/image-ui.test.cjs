@@ -402,14 +402,24 @@ test('detection switches repaint existing notes immediately, preserve text and p
   assert.equal(phone.textContent, 'ON');
 });
 
-test('refresh stays disabled on the device tab and is available only for authenticated shared notes', async () => {
+test('device disables login, logout, refresh and sync; cloud tabs restore the applicable actions', async () => {
   for (const authenticated of [false, true]) {
     const app = boot({ authenticated }); await app.ready; await new Promise(setImmediate);
     const button = app.context.document.querySelector('#refreshNotes');
+    const document = app.context.document;
+    for (const selector of ['#accountButton', '#loginSubmit', '#logoutButton', '#syncNotes']) {
+      assert.equal(document.querySelector(selector).disabled, true);
+    }
+    document.querySelector('#accountButton').click();
+    assert.equal(Boolean(document.querySelector('#loginDialog').open), false);
     assert.equal(button.disabled, true);
     const count = app.requests.length; button.click(); await new Promise(setImmediate);
     assert.equal(app.requests.length, count);
-    app.tab(1); assert.equal(button.disabled, !authenticated);
+    for (const tab of [1, 2]) {
+      app.tab(tab); assert.equal(button.disabled, !authenticated);
+      assert.equal(document.querySelector('#accountButton').disabled, false);
+      assert.equal(document.querySelector('#syncNotes').disabled, !authenticated);
+    }
     app.tab(0); assert.equal(button.disabled, true);
   }
 });
@@ -429,13 +439,13 @@ test('manual refresh, sync and background polling keep temporary locks distinct 
     for (const id of ['#accountButton', '#refreshNotes', '#syncNotes']) {
       const button = document.querySelector(id);
       assert.equal(button.disabled, true, `${action}: duplicate actions remain blocked`);
-      assert.equal(button.attributes['aria-busy'], 'true', `${action}: the busy style preserves the available appearance`);
+      assert.equal(button.attributes['aria-busy'], 'true', `${action}: busy actions retain their progress state`);
       button.click();
     }
     await new Promise(setImmediate);
     assert.equal(app.requests.length, before + 1);
     finish(Response.json({ notes: [] })); await operation;
-    await until(() => !document.querySelector('#accountButton').disabled);
+    await until(() => !document.querySelector('#sharedTab').disabled);
     for (const id of ['#accountButton', '#refreshNotes', '#syncNotes']) {
       assert.equal(document.querySelector(id).disabled, false);
       assert.equal(document.querySelector(id).attributes['aria-busy'], 'false');
@@ -449,7 +459,8 @@ test('manual refresh, sync and background polling keep temporary locks distinct 
     assert.equal(document.querySelector(id).disabled, true);
     assert.equal(document.querySelector(id).attributes['aria-busy'], 'false', 'device actions stay unavailable during background work');
   }
-  assert.equal(document.querySelector('#accountButton').attributes['aria-busy'], 'true');
+  assert.equal(document.querySelector('#accountButton').disabled, true);
+  assert.equal(document.querySelector('#accountButton').attributes['aria-busy'], 'false');
   finish(Response.json({ notes: [] })); await operation;
 });
 
@@ -488,6 +499,7 @@ test('settings and account overlays preserve header spacing if iOS reduces its s
     const layout = { top: '59px', inset: '59px' };
     const app = boot({ layout }); await app.ready; await new Promise(setImmediate);
     const document = app.context.document;
+    if (trigger === '#accountButton') app.tab(1);
     document.querySelector(trigger).click();
     assert.equal(document.style['--overlay-notes-top'], '59px');
     assert.equal(document.style['--overlay-inset-top'], '59px');
@@ -516,6 +528,7 @@ test('settings, login and logout retain normal-page top spacing when the safe ar
     const layout = { top: '20px', inset: '0px' };
     const app = boot({ layout, authenticated }); await settled(app);
     const document = app.context.document;
+    if (trigger === '#accountButton') app.tab(1);
     document.querySelector(trigger).click();
     const notes = document.querySelector('.notes'), edge = document.querySelector('.system-bar-background');
     assert.equal(document.style['--overlay-notes-top'], '20px');
@@ -543,6 +556,7 @@ test('closing one overlay cannot release another overlay spacing, including a fa
   const document = app.context.document;
   document.querySelector('#settingsButton').click();
   document.querySelector('#closeSettings').click();
+  app.tab(1);
   document.querySelector('#accountButton').click(); app.flushFrames();
   assert.equal(document.style['--overlay-notes-top'], '59px');
   document.querySelector('#loginDialog').close(); app.flushFrames();
@@ -589,6 +603,7 @@ test('opening settings, login and logout never leaves a control focused', async 
     const app = boot({ authenticated }); await app.ready; await new Promise(setImmediate);
     const document = app.context.document;
     for (const [triggerId, dialogId] of [['#settingsButton', '#settingsDialog'], ['#accountButton', '#loginDialog']]) {
+      if (triggerId === '#accountButton') app.tab(1);
       const trigger = document.querySelector(triggerId); trigger.focus(); trigger.click();
       assert.equal(document.querySelector(dialogId).open, true);
       assert.equal(document.activeElement, document.body);
@@ -603,6 +618,7 @@ test('Escape cannot dismiss an account overlay while authentication is in flight
   const pending = new Promise(resolve => { finish = resolve; });
   const app = boot({ apiFetch: (url, options) => options.method === 'POST' ? pending : Response.json({ authenticated: false }) });
   await settled(app);
+  app.tab(1);
   const document = app.context.document;
   document.querySelector('#accountButton').click();
   document.querySelector('#loginNumber').value = '00123';
@@ -610,7 +626,7 @@ test('Escape cannot dismiss an account overlay while authentication is in flight
   document.dispatchEvent({ type: 'keydown', key: 'Escape' });
   assert.equal(document.querySelector('#loginDialog').open, true);
   finish(Response.json({ error: 'invalid code' }, { status: 401 }));
-  await until(() => !document.querySelector('#accountButton').disabled);
+  await until(() => !document.querySelector('#sharedTab').disabled);
   document.dispatchEvent({ type: 'keydown', key: 'Escape' }); app.flushFrames();
   assert.equal(document.querySelector('#loginDialog').open, false);
   assert.equal(document.querySelector('.notes').inert, false);
@@ -640,11 +656,12 @@ async function authFixture(t, origin = 'http://127.0.0.1:5500', config) {
 }
 async function settled(app) {
   await app.ready;
-  await until(() => !app.context.document.querySelector('#accountButton').disabled);
+  await until(() => !app.context.document.querySelector('#sharedTab').disabled);
 }
 async function login(app, code = '00123') {
   await settled(app);
   const document = app.context.document;
+  if (document.querySelector('#deviceTab').attributes['aria-selected'] === 'true') app.tab(1);
   document.querySelector('#loginNumber').value = code;
   document.querySelector('#loginForm').dispatchEvent({ type: 'submit' });
   await until(() => document.querySelector('#accountButton').textContent === 'ログイン中' && !document.querySelector('#accountButton').disabled);
@@ -693,8 +710,9 @@ test('local 5500 reloads restore a real bearer session, and logout clears it', a
     assert.equal(document.querySelector('#accountButton').textContent, 'ログイン中');
     assert.equal(reloaded.requests[0].options.headers.Authorization, 'Bearer ' + saved.token);
     assert.equal(reloaded.requests[0].options.credentials, 'omit');
+    reloaded.tab(1);
     document.querySelector('#logoutButton').click();
-    await until(() => document.querySelector('#accountButton').textContent === 'ログイン' && !document.querySelector('#accountButton').disabled);
+    await until(() => document.querySelector('#accountButton').textContent === 'ログイン' && !document.querySelector('#sharedTab').disabled);
     assert.equal(fixture.sessionDisk.size, 0);
     const afterLogout = fixture.create(); await settled(afterLogout);
     assert.equal(afterLogout.context.document.querySelector('#accountButton').textContent, 'ログイン');
@@ -763,7 +781,7 @@ test('the unified login routes G numbers to the third tab and three people share
   a.tab(2); assert.deepEqual(noteTexts(a), ['group memo', 'person 0', 'person 1']);
   assert.equal(fixture.sessionDisk.size, 2, 'both login tokens coexist');
   a.context.document.querySelector('#logoutButton').click();
-  await until(() => !a.context.document.querySelector('#accountButton').disabled);
+  await until(() => !a.context.document.querySelector('#sharedTab').disabled);
   assert.equal(fixture.sessionDisk.size, 1);
   a.tab(1); assert.deepEqual(noteTexts(a), ['private shared memo']);
   assert.equal(a.context.document.querySelector('#accountButton').textContent, 'ログイン中');
