@@ -210,7 +210,7 @@ button { -webkit-tap-highlight-color: transparent; }
 }
 .workspace-tabs::before {
   content: ""; position: absolute; z-index: 0; left: 5px; top: 5px;
-  width: var(--tab-width, calc((100% - 14px) / 2)); height: calc(100% - 10px);
+  width: var(--tab-width, calc((100% - 18px) / 3)); height: calc(100% - 10px);
   border: 1px solid var(--glass-border); border-radius: 999px;
   background: var(--tab-bg);
   box-shadow: 0 3px 9px #314d5212, inset 0 1px 1px var(--glass-inset);
@@ -218,6 +218,7 @@ button { -webkit-tap-highlight-color: transparent; }
   transition: box-shadow 180ms; pointer-events: none;
 }
 .workspace-tabs[data-active="shared"] { --tab-x: calc(100% + 4px); }
+.workspace-tabs[data-active="group"] { --tab-x: calc(200% + 8px); }
 .workspace-tabs.is-tab-pressed::before {
   box-shadow: 0 5px 16px #314d5222, inset 0 1px 2px var(--glass-inset);
 }

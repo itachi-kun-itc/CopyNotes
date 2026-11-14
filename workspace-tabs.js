@@ -107,7 +107,7 @@ globalThis.CopyNotesTabs = (() => {
 
     function point(event) {
       const rect = root.getBoundingClientRect();
-      root.style.setProperty('--tab-light', `${clamp(event.clientX - rect.left - x, 0, rect.width / 2)}px`);
+      root.style.setProperty('--tab-light', `${clamp(event.clientX - rect.left - x, 0, rect.width / tabs.length)}px`);
     }
 
     root.addEventListener('pointerdown', event => {

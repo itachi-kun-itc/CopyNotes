@@ -53,11 +53,12 @@
     <nav class="workspace-tabs" data-active="device" role="tablist" aria-label="メモの保存先">
       <button id="deviceTab" class="workspace-tab" type="button" role="tab" aria-selected="true" aria-controls="notesPanel" tabindex="0">端末</button>
       <button id="sharedTab" class="workspace-tab" type="button" role="tab" aria-selected="false" aria-controls="notesPanel" tabindex="-1">共有</button>
+      <button id="groupTab" class="workspace-tab" type="button" role="tab" aria-selected="false" aria-controls="notesPanel" tabindex="-1">グループ</button>
     </nav>
     <section id="notesPanel" role="tabpanel" aria-labelledby="deviceTab">
       <p id="syncStatus" class="sync-status" role="status" aria-live="polite" hidden></p>
       <div id="sharingLogin" class="sharing-login" hidden>
-        <p>発行済みのログイン番号で、メモを共有できます。</p>
+        <p id="sharingLoginHelp">発行済みのログイン番号で、メモを共有できます。</p>
         <button id="sharingLoginButton" class="toolbar-button" type="button">ログイン</button>
       </div>
       <div class="notes-scroll">
@@ -72,10 +73,10 @@
   <dialog id="loginDialog" class="login-dialog" aria-modal="true" tabindex="-1" autofocus aria-labelledby="loginTitle" aria-describedby="loginHelp">
     <form id="loginForm">
       <div class="login-heading"><h1 id="loginTitle">ログイン番号</h1><button id="closeLogin" class="dialog-close" type="button" aria-label="閉じる">×</button></div>
-      <p id="loginHelp">発行済みの番号を入力してください。同じ番号の端末で共有できます。</p>
+      <p id="loginHelp">通常番号は数字5桁、グループ番号はG＋数字4桁です。同じグループ番号を複数人で使えます。</p>
       <div id="loginFields">
-      <label class="login-label" for="loginNumber">半角数字5桁</label>
-      <input id="loginNumber" class="login-number" name="code" type="text" inputmode="numeric" pattern="[0-9]{5}" minlength="5" maxlength="5" autocomplete="off" autocapitalize="off" spellcheck="false" placeholder="00000" aria-describedby="loginHelp loginError" required>
+      <label class="login-label" for="loginNumber">通常：12345 ／ グループ：G1234</label>
+      <input id="loginNumber" class="login-number" name="code" type="text" pattern="([0-9]{5}|G[0-9]{4})" minlength="5" maxlength="5" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="G1234" aria-describedby="loginHelp loginError" required>
       </div>
       <p id="loginError" class="login-error" role="alert"></p>
       <button id="loginSubmit" class="login-submit" type="submit">ログイン</button>
@@ -114,7 +115,7 @@
         </div>
         <div class="note-images" aria-label="添付画像" hidden></div>
         <div class="image-tools">
-          <button class="attach-image" type="button" title="画像を追加（1枚20MiBまで）" aria-label="画像を追加（端末・共有それぞれ3枚まで、1枚20MiBまで）">
+          <button class="attach-image" type="button" title="画像を追加（1枚20MiBまで）" aria-label="画像を追加（保存先ごとに3枚まで、1枚20MiBまで）">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="3"/><circle cx="8" cy="8" r="1.5"/><path d="m3 17 6-6 4 4 3-3 5 5"/></svg>
           </button>
           <span class="image-count" aria-label="画像の枚数" hidden>0/1</span>

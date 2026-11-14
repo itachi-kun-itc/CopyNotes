@@ -585,6 +585,7 @@ async function authFixture(t, origin = 'http://127.0.0.1:5500', config) {
   const { handleApi } = await import('../lib/cloud-api.mjs');
   const db = createDatabase(); t.after(() => db.close());
   db.batch(admin.prepare(db, admin.issue('00123')));
+  db.batch(admin.prepare(db, admin.issue('G0123')));
   const sessionDisk = new Map();
   let offline = false;
   const create = (options = {}) => boot({ origin, sessionDisk, config, ...options, apiFetch: (url, options) => {
@@ -597,10 +598,10 @@ async function settled(app) {
   await app.ready;
   await until(() => !app.context.document.querySelector('#accountButton').disabled);
 }
-async function login(app) {
+async function login(app, code = '00123') {
   await settled(app);
   const document = app.context.document;
-  document.querySelector('#loginNumber').value = '00123';
+  document.querySelector('#loginNumber').value = code;
   document.querySelector('#loginForm').dispatchEvent({ type: 'submit' });
   await until(() => document.querySelector('#accountButton').textContent === 'ログイン中' && !document.querySelector('#accountButton').disabled);
 }
@@ -688,4 +689,67 @@ test('GitHub Pages keeps its existing memory-only session behavior', async t => 
   assert.equal(fixture.sessionDisk.size, 0);
   const reloaded = fixture.create(); await settled(reloaded);
   assert.equal(reloaded.context.document.querySelector('#accountButton').textContent, 'ログイン');
+});
+
+test('the unified login routes G numbers to the third tab and three people share group changes', async t => {
+  const fixture = await authFixture(t);
+  const a = fixture.create(); await login(a);
+  a.add(); a.row().querySelector('textarea').value = 'private shared memo';
+  a.row().querySelector('textarea').dispatchEvent({ type: 'input' });
+  a.tab(2); await login(a, 'G0123');
+  assert.deepEqual(noteTexts(a), []);
+  assert.equal(a.context.document.querySelector('#groupTab').attributes['aria-selected'], 'true');
+  a.add(); a.row().querySelector('textarea').value = 'group memo';
+  a.row().querySelector('textarea').dispatchEvent({ type: 'input' });
+  await a.runAutoSync();
+  const groupKey = a.requests.find(request => request.options.method === 'POST' && request.options.headers['X-CopyNotes-Workspace'] === 'group' && String(request.url).endsWith('/notes')).options.headers['X-CopyNotes-Room'];
+  const rows = fixture.db.prepare('SELECT room_id, content FROM shared_notes').all().results;
+  assert.equal(rows.find(note => note.content === 'group memo').room_id, groupKey);
+  assert.notEqual(rows.find(note => note.content === 'private shared memo').room_id, groupKey, 'pending private notes sync to their own room after switching');
+  for (let person = 0; person < 2; person++) {
+    const b = fixture.create({ sessionDisk: new Map() }); await login(b, 'G0123');
+    assert.deepEqual(noteTexts(b), ['group memo', ...Array.from({ length: person }, (_, index) => 'person ' + index)]);
+    b.add(); b.list.children.at(-1).querySelector('textarea').value = 'person ' + person;
+    b.list.children.at(-1).querySelector('textarea').dispatchEvent({ type: 'input' });
+    await b.runAutoSync();
+  }
+  await a.runAutoSync();
+  assert.deepEqual(noteTexts(a), ['group memo', 'person 0', 'person 1']);
+  a.tab(1); assert.deepEqual(noteTexts(a), ['private shared memo']);
+  a.tab(2); assert.deepEqual(noteTexts(a), ['group memo', 'person 0', 'person 1']);
+  assert.equal(fixture.sessionDisk.size, 2, 'both login tokens coexist');
+  a.context.document.querySelector('#logoutButton').click();
+  await until(() => !a.context.document.querySelector('#accountButton').disabled);
+  assert.equal(fixture.sessionDisk.size, 1);
+  a.tab(1); assert.deepEqual(noteTexts(a), ['private shared memo']);
+  assert.equal(a.context.document.querySelector('#accountButton').textContent, 'ログイン中');
+  a.tab(2); assert.deepEqual(noteTexts(a), []);
+  assert.equal(a.context.document.querySelector('#addNote').disabled, true);
+});
+
+test('group drafts, images and login survive preview reload and a revoked group cannot log out the shared session', async t => {
+  const fixture = await authFixture(t);
+  const a = fixture.create(); await login(a); a.tab(2); await login(a, 'G0123');
+  fixture.setOffline(true);
+  a.add(); paste(a.row(), [photo]);
+  await until(() => a.row().noteImages.length === 1);
+  assert.equal(await a.runAutoSync(), false);
+  fixture.setOffline(false);
+  const reloaded = fixture.create({ savedDisk: a.disk }); await settled(reloaded);
+  reloaded.tab(2);
+  assert.equal(reloaded.context.document.querySelector('#accountButton').textContent, 'ログイン中');
+  assert.deepEqual(Array.from(reloaded.row().noteImages), [photo.src]);
+  await reloaded.runAutoSync();
+  assert.equal(fixture.db.prepare("SELECT COUNT(*) AS count FROM shared_notes WHERE images <> '[]'").first().count, 1);
+  reloaded.add(); const input = reloaded.list.children.at(-1).querySelector('textarea');
+  input.value = 'pending group edit'; input.dispatchEvent({ type: 'input' });
+  reloaded.tab(1);
+  const admin = require('../lib/login-admin.cjs');
+  fixture.db.batch(admin.prepare(fixture.db, admin.remove('G0123')));
+  assert.equal(await reloaded.runAutoSync(), false);
+  assert.equal(reloaded.context.document.querySelector('#accountButton').textContent, 'ログイン中');
+  reloaded.tab(2);
+  assert.equal(reloaded.context.document.querySelector('#accountButton').textContent, 'ログイン');
+  assert.equal(reloaded.context.document.querySelector('#addNote').disabled, true);
+  assert.equal(fixture.sessionDisk.size, 1);
 });

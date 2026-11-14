@@ -57,7 +57,8 @@
     storage: localStorage, indexedDB: globalThis.indexedDB, onError: storageWarning,
   }) : null;
   const noteStorage = attachmentStorage || localStorage;
-  const imageTransfer = CopyNotesImageTransfer.create(request);
+  const imageTransfers = Object.fromEntries(['shared', 'group'].map(workspace =>
+    [workspace, CopyNotesImageTransfer.create((path, method, body) => request(path, method, body, workspace))]));
   let menuRow = null;
   let menuPoint = { x: 0, y: 0 };
   const sharing = CopyNotesSharing;
@@ -67,12 +68,13 @@
   // The storage key also binds it to this API; login numbers are never saved.
   const persistApiSession = crossOriginApi && Boolean(globalThis.CopyNotesConfig?.persistSession);
   const apiSessionKey = 'copynotes.preview-session.v1.' + apiBase;
-  let apiSession = '';
-  if (persistApiSession) {
+  const apiSessions = { shared: '', group: '' };
+  const sessionKey = workspace => apiSessionKey + (workspace === 'group' ? '.group' : '');
+  if (persistApiSession) for (const workspace of ['shared', 'group']) {
     try {
-      const saved = JSON.parse(sessionStorage.getItem(apiSessionKey));
-      if (/^[a-f0-9]{64}$/.test(saved?.token) && Number.isFinite(saved.expiresAt) && saved.expiresAt > Date.now()) apiSession = saved.token;
-      else sessionStorage.removeItem(apiSessionKey);
+      const saved = JSON.parse(sessionStorage.getItem(sessionKey(workspace)));
+      if (/^[a-f0-9]{64}$/.test(saved?.token) && Number.isFinite(saved.expiresAt) && saved.expiresAt > Date.now()) apiSessions[workspace] = saved.token;
+      else sessionStorage.removeItem(sessionKey(workspace));
     } catch { /* Use the current tab's in-memory session if storage is blocked. */ }
   }
   const refreshButton = document.querySelector('#refreshNotes');
@@ -84,6 +86,7 @@
   const accountButton = document.querySelector('#accountButton');
   const deviceTab = document.querySelector('#deviceTab');
   const sharedTab = document.querySelector('#sharedTab');
+  const groupTab = document.querySelector('#groupTab');
   let tabMotion;
   const syncStatus = document.querySelector('#syncStatus');
   const sharingLogin = document.querySelector('#sharingLogin');
@@ -176,6 +179,21 @@
   let authenticated = false;
   let busy = true;
   let cloudMessage = '';
+  let cloudTab = 'shared';
+  const cloudStates = {
+    shared: { authenticated: false, roomId: null, notes: [], message: '' },
+    group: { authenticated: false, roomId: null, notes: [], message: '' },
+  };
+  function rememberCloud() {
+    cloudStates[cloudTab] = { authenticated, roomId, notes: sharedNotes, message: cloudMessage };
+  }
+  function selectCloud(workspace) {
+    rememberCloud();
+    cloudTab = workspace;
+    const state = cloudStates[workspace];
+    authenticated = state.authenticated; roomId = state.roomId;
+    sharedNotes = state.notes; cloudMessage = state.message;
+  }
   const inFlightIds = new Set();
   const composingInputs = new Set();
   const idleWaiters = new Set();
@@ -203,17 +221,34 @@
     blocked: () => removingCount > 0 || composingInputs.size > 0 || preparingImages > 0 || touch.active || busy && !backgroundSync,
   });
   const autoSync = CopyNotesAutoSync.create({
-    run: () => cloudAction(true, false, true),
-    enabled: () => authenticated && document.visibilityState !== 'hidden' && navigator.onLine !== false
-      && (activeTab === 'shared' || pendingOperations().length > 0 || pendingOrder()),
+    run: syncWorkspaces,
+    enabled: () => document.visibilityState !== 'hidden' && navigator.onLine !== false
+      && (authenticated && activeTab !== 'device' || hasPendingCloud()),
     ready: () => !busy && !interactionActive(),
-    hasChanges: () => pendingOperations().length > 0 || Boolean(pendingOrder()),
+    hasChanges: hasPendingCloud,
   });
 
-  function pendingOperations() {
-    return sharing.operations(sharedNotes.filter(note => note.version || note.deleted || note.pendingMutationId || !CopyNotesImages.isBlank(note)));
+  function pendingOperations(notes = sharedNotes) {
+    return sharing.operations(notes.filter(note => note.version || note.deleted || note.pendingMutationId || !CopyNotesImages.isBlank(note)));
   }
   function pendingOrder() { return roomId ? noteOrder.pending(orderWorkspace('shared')) : null; }
+  function hasPendingCloud() {
+    rememberCloud();
+    return Object.values(cloudStates).some(state => state.authenticated &&
+      (pendingOperations(state.notes).length || noteOrder.pending('shared.' + state.roomId)));
+  }
+  async function syncWorkspaces() {
+    const selected = cloudTab;
+    let success = true;
+    if (authenticated) success = await cloudAction(true, false, true);
+    const other = selected === 'shared' ? 'group' : 'shared';
+    const state = cloudStates[other];
+    if (state.authenticated && (pendingOperations(state.notes).length || noteOrder.pending('shared.' + state.roomId))) {
+      const result = await cloudAction(true, false, true, other);
+      success = result !== false && success;
+    }
+    return success;
+  }
   function interactionActive() { return preparingImages > 0 || composingInputs.size > 0 || touch.active || reorder.active || removingCount > 0; }
   function releaseIdle() {
     // compositionend can precede the final input event; merge after both.
@@ -257,11 +292,11 @@
     else persistDevice(deviceNotes);
   }
 
-  function persistShared() {
-    if (!roomId) return;
+  function persistShared(notes = sharedNotes, room = roomId) {
+    if (!room) return;
     try {
-      if (attachmentStorage) attachmentStorage.setNotes('copynotes.shared.v4.' + roomId, sharedNotes);
-      else noteStorage.setItem('copynotes.shared.v4.' + roomId, JSON.stringify(sharedNotes));
+      if (attachmentStorage) attachmentStorage.setNotes('copynotes.shared.v4.' + room, notes);
+      else noteStorage.setItem('copynotes.shared.v4.' + room, JSON.stringify(notes));
     }
     catch { storageWarning(); }
   }
@@ -321,26 +356,28 @@
   }
 
   function updateWorkspace() {
-    const shared = activeTab === 'shared';
+    const shared = activeTab !== 'device';
+    const workspaceLabel = cloudTab === 'group' ? 'グループ' : '共有';
     updateImageButtons();
     document.querySelector('.workspace-tabs').dataset.active = activeTab;
-    deviceTab.setAttribute('aria-selected', String(!shared));
-    sharedTab.setAttribute('aria-selected', String(shared));
-    deviceTab.tabIndex = shared ? -1 : 0;
-    sharedTab.tabIndex = shared ? 0 : -1;
-    document.querySelector('#notesPanel').setAttribute('aria-labelledby', shared ? 'sharedTab' : 'deviceTab');
+    for (const [name, tab] of [['device', deviceTab], ['shared', sharedTab], ['group', groupTab]]) {
+      tab.setAttribute('aria-selected', String(activeTab === name));
+      tab.tabIndex = activeTab === name ? 0 : -1;
+    }
+    document.querySelector('#notesPanel').setAttribute('aria-labelledby', activeTab + 'Tab');
     const accountLabel = authenticated ? 'ログイン中' : 'ログイン';
     if (accountButton.textContent !== accountLabel) accountButton.textContent = accountLabel;
     accountButton.disabled = busy;
     accountButton.setAttribute('aria-busy', String(busy));
     refreshButton.disabled = busy || !shared || !authenticated;
     refreshButton.setAttribute('aria-busy', String(busy && shared && authenticated));
-    refreshButton.title = !shared ? '共有タブで更新できます' : authenticated ? '共有内容を取得して空白の入力欄を整理' : 'ログイン後に更新できます';
+    refreshButton.title = !shared ? '共有・グループタブで更新できます' : authenticated ? workspaceLabel + 'の内容を取得して空白の入力欄を整理' : 'ログイン後に更新できます';
     syncButton.disabled = busy || !shared || !authenticated;
-    syncButton.title = !shared ? '共有タブで同期できます' : authenticated ? '共有タブの変更を送信' : 'ログイン後に同期できます';
+    syncButton.title = !shared ? '共有・グループタブで同期できます' : authenticated ? workspaceLabel + 'タブの変更を送信' : 'ログイン後に同期できます';
     syncButton.setAttribute('aria-busy', String(busy && shared && authenticated));
     addButton.disabled = shared && !authenticated;
-    sharedTab.disabled = busy && !authenticated;
+    sharedTab.disabled = busy;
+    groupTab.disabled = busy;
     tabMotion?.sync();
     loginSubmit.disabled = busy;
     logoutButton.disabled = busy;
@@ -350,14 +387,19 @@
     loginNumber.disabled = authenticated;
     loginSubmit.hidden = authenticated;
     loginDialog.dataset.mode = authenticated ? 'logout' : 'login';
-    loginTitle.textContent = authenticated ? 'ログアウト' : 'ログイン番号';
+    loginTitle.textContent = authenticated ? workspaceLabel + 'からログアウト' : 'ログイン番号';
     loginHelp.textContent = authenticated
-      ? 'ログアウトすると、共有メモの閲覧・編集には再度ログインが必要です。'
-      : '発行済みの番号を入力してください。同じ番号の端末で共有できます。';
+      ? 'ログアウトすると、' + workspaceLabel + 'メモの閲覧・編集には再度ログインが必要です。'
+      : '通常番号は数字5桁、グループ番号はG＋数字4桁です。同じグループ番号を複数人で使えます。';
     sharingLogin.hidden = !shared || authenticated;
+    document.querySelector('#sharingLoginHelp').textContent = cloudTab === 'group'
+      ? '発行済みのグループ番号（G＋数字4桁）で、複数人とメモを共有できます。'
+      : '発行済みのログイン番号で、メモを共有できます。';
     syncStatus.hidden = !shared;
     const pending = pendingOperations().length + Number(Boolean(pendingOrder()));
-    syncStatus.textContent = cloudMessage || (busy && !backgroundSync ? '接続中…' : !authenticated ? '5桁の番号でログインして共有' : pending ? '自動同期待ち ' + pending + '件' : '自動同期');
+    syncStatus.textContent = !authenticated
+      ? (cloudTab === 'group' ? 'G＋数字4桁でグループにログイン' : '5桁の番号でログインして共有')
+      : cloudMessage || (busy && !backgroundSync ? '接続中…' : pending ? '自動同期待ち ' + pending + '件' : '自動同期');
   }
 
   function renderNotes(restoreFocus = false, preserved = []) {
@@ -419,8 +461,10 @@
 
   function setTab(tab) {
     if (tab === activeTab) return;
+    if (tab !== 'device' && busy) return;
     reorder.cancel();
     saveNotes();
+    if (tab !== 'device' && tab !== cloudTab) selectCloud(tab);
     activeTab = tab;
     renderNotes();
     autoSync.refresh();
@@ -435,26 +479,28 @@
 
   function resetAuthentication() {
     authenticated = false; roomId = null; sharedNotes = [];
-    if (activeTab === 'shared') renderNotes();
+    rememberCloud();
+    if (activeTab !== 'device') renderNotes();
   }
 
-  async function request(path, method = 'GET', body) {
+  async function request(path, method = 'GET', body, workspace = cloudTab) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 20000);
     try {
       const endpoint = crossOriginApi ? apiBase + '/api/' + path : new URL('api/' + path, document.baseURI).href;
+      const requestRoom = workspace === cloudTab ? roomId : cloudStates[workspace].roomId;
       const response = await fetch(endpoint, {
         method, credentials: crossOriginApi ? 'omit' : 'same-origin', cache: 'no-store', signal: controller.signal,
-        headers: { 'Content-Type': 'application/json',
-          ...(roomId && (path === 'notes' || path === 'note-order' || path.startsWith('images') || path === 'auth' && method === 'DELETE') ? { 'X-CopyNotes-Room': roomId } : {}),
-          ...(crossOriginApi && apiSession ? { Authorization: 'Bearer ' + apiSession } : {}) },
+        headers: { 'Content-Type': 'application/json', 'X-CopyNotes-Workspace': workspace,
+          ...(requestRoom && (path === 'notes' || path === 'note-order' || path.startsWith('images') || path === 'auth' && method === 'DELETE') ? { 'X-CopyNotes-Room': requestRoom } : {}),
+          ...(crossOriginApi && apiSessions[workspace] ? { Authorization: 'Bearer ' + apiSessions[workspace] } : {}) },
         ...(body === undefined ? {} : { body: JSON.stringify(body) }),
       });
       if (!response.headers.get('content-type')?.includes('application/json')) throw new Error('共有機能に接続できませんでした');
       const data = await response.json();
       if (crossOriginApi && (response.status === 401 || path === 'auth' && data.authenticated === false)) {
-        apiSession = '';
-        if (persistApiSession) try { sessionStorage.removeItem(apiSessionKey); } catch { /* Storage can be blocked. */ }
+        apiSessions[workspace] = '';
+        if (persistApiSession) try { sessionStorage.removeItem(sessionKey(workspace)); } catch { /* Storage can be blocked. */ }
       }
       if (!response.ok) {
         const error = new Error(data.error || '共有機能に接続できませんでした');
@@ -462,9 +508,10 @@
         throw error;
       }
       if (crossOriginApi && path === 'auth' && data.sessionToken) {
-        apiSession = data.sessionToken;
+        const targetWorkspace = data.workspace || workspace;
+        apiSessions[targetWorkspace] = data.sessionToken;
         if (persistApiSession && Number.isFinite(data.expiresIn) && data.expiresIn > 0) try {
-          sessionStorage.setItem(apiSessionKey, JSON.stringify({ token: apiSession, expiresAt: Date.now() + data.expiresIn * 1000 }));
+          sessionStorage.setItem(sessionKey(targetWorkspace), JSON.stringify({ token: data.sessionToken, expiresAt: Date.now() + data.expiresIn * 1000 }));
         } catch { /* Keep the valid in-memory session if persistence fails. */ }
       }
       return data;
@@ -474,48 +521,63 @@
     } finally { clearTimeout(timer); }
   }
 
-  async function cloudAction(synchronize, compactRemoteBlanks = false, automatic = false) {
+  async function cloudAction(synchronize, compactRemoteBlanks = false, automatic = false, workspace = cloudTab) {
     if (busy) return;
-    if (!authenticated) return;
     saveNotes();
-    const expectedRoom = roomId;
-    const sent = synchronize ? sharing.batch(pendingOperations()) : [];
-    const sentOrder = synchronize ? pendingOrder() : null;
+    rememberCloud();
+    const state = cloudStates[workspace];
+    if (!state.authenticated) return;
+    const current = () => workspace === cloudTab;
+    const expectedRoom = state.roomId;
+    const transfer = imageTransfers[workspace];
+    const orderKey = 'shared.' + expectedRoom;
+    const send = (path, method, body) => request(path, method, body, workspace);
+    const sent = synchronize ? sharing.batch(pendingOperations(state.notes)) : [];
+    const sentOrder = synchronize ? noteOrder.pending(orderKey) : null;
     sent.forEach(note => inFlightIds.add(note.id));
     if (sent.length) {
-      const byId = new Map(sharedNotes.map(note => [note.id, note]));
+      const byId = new Map(state.notes.map(note => [note.id, note]));
       sent.forEach(operation => { byId.get(operation.id).pendingMutationId ||= operation.mutationId; });
-      persistShared();
+      persistShared(state.notes, expectedRoom);
     }
     busy = true;
     backgroundSync = automatic;
-    if (!automatic) cloudMessage = synchronize ? '同期中…' : '更新中…';
+    if (!automatic && current()) cloudMessage = synchronize ? '同期中…' : '更新中…';
     updateWorkspace();
     try {
-      if (roomId !== expectedRoom || !authenticated) return false;
-      const operations = await imageTransfer.encode(sent, expectedRoom);
-      const data = operations.length ? await request('notes', 'POST', { requestId: crypto.randomUUID(), operations }) : await request('notes');
-      if (sentOrder) data.noteOrder = (await request('note-order', 'POST', sentOrder)).noteOrder;
-      data.notes = await imageTransfer.decode(data.notes, expectedRoom);
+      const operations = await transfer.encode(sent, expectedRoom);
+      const data = operations.length ? await send('notes', 'POST', { requestId: crypto.randomUUID(), operations }) : await send('notes');
+      if (sentOrder) data.noteOrder = (await send('note-order', 'POST', sentOrder)).noteOrder;
+      data.notes = await transfer.decode(data.notes, expectedRoom);
       await attachmentStorage?.retain(data.notes);
       await waitForIdle();
-      if (roomId !== expectedRoom || !authenticated) return false;
-      noteOrder.merge(orderWorkspace('shared'), data.noteOrder, sentOrder);
-      const merged = sharing.merge(sharedNotes, data.notes, sent);
-      sharedNotes = merged.notes;
+      if (current() && (roomId !== expectedRoom || !authenticated)) return false;
+      noteOrder.merge(orderKey, data.noteOrder, sentOrder);
+      const merged = sharing.merge(current() ? sharedNotes : state.notes, data.notes, sent);
+      state.notes = merged.notes;
       if (compactRemoteBlanks) {
         const blankIds = new Set(data.notes.filter(note => !note.deleted && CopyNotesImages.isBlank(note)).map(note => note.id));
-        sharedNotes = sharing.compactBlank(sharedNotes, inFlightIds, blankIds);
+        state.notes = sharing.compactBlank(state.notes, inFlightIds, blankIds);
       }
-      persistShared();
-      cloudMessage = merged.copies ? '同時編集した内容を、未同期の別メモとして残しました'
+      persistShared(state.notes, expectedRoom);
+      state.message = merged.copies ? '同時編集した内容を、未同期の別メモとして残しました'
         : merged.deletions ? '他端末で更新されたメモの削除は見送りました' : '';
-      if (activeTab === 'shared') renderNotes(true, merged.preserved);
-      if (!automatic || cloudMessage) announce(cloudMessage || (synchronize ? '同期しました' : '共有内容を更新しました'));
+      cloudStates[workspace] = state;
+      if (current()) {
+        sharedNotes = state.notes; cloudMessage = state.message;
+        if (activeTab !== 'device') renderNotes(true, merged.preserved);
+      }
+      if (!automatic || state.message) announce(state.message || (synchronize ? '同期しました' : '共有内容を更新しました'));
       return true;
     } catch (error) {
-      cloudMessage = error.message;
-      if (error.status === 401) resetAuthentication();
+      state.message = error.message;
+      if (current()) {
+        cloudMessage = error.message;
+        if (error.status === 401) resetAuthentication();
+      } else if (error.status === 401) {
+        state.authenticated = false; state.roomId = null; state.notes = [];
+        cloudStates[workspace] = state;
+      }
       announce(error.message);
       return false;
     } finally {
@@ -530,21 +592,30 @@
       authenticated = auth.authenticated;
       roomId = auth.roomId || null;
       if (authenticated) sharedNotes = readShared();
+      rememberCloud();
+      const group = await request('auth', 'GET', undefined, 'group');
+      cloudStates.group = { authenticated: group.authenticated, roomId: group.roomId || null, notes: [], message: '' };
+      if (group.authenticated) {
+        const originalRoom = roomId;
+        roomId = group.roomId;
+        cloudStates.group.notes = readShared();
+        roomId = originalRoom;
+      }
     } catch (error) { cloudMessage = error.message; }
     finally { busy = false; updateWorkspace(); }
     if (authenticated) await cloudAction(false, true);
   }
 
   tabMotion = CopyNotesTabs.attach(document.querySelector('.workspace-tabs'), {
-    onChange: index => setTab(index === 0 ? 'device' : 'shared'),
+    onChange: index => setTab(['device', 'shared', 'group'][index]),
   });
   accountButton.addEventListener('click', openLogin);
   document.querySelector('#sharingLoginButton').addEventListener('click', openLogin);
   closeLogin.addEventListener('click', () => loginDialog.close());
   loginDialog.addEventListener('cancel', event => { if (busy) event.preventDefault(); });
-  loginNumber.addEventListener('input', () => { loginError.textContent = ''; });
+  loginNumber.addEventListener('input', () => { loginNumber.value = loginNumber.value.toUpperCase(); loginError.textContent = ''; });
   refreshButton.addEventListener('click', async () => {
-    if (activeTab !== 'shared' || refreshButton.disabled) return;
+    if (activeTab === 'device' || refreshButton.disabled) return;
     const expectedTab = activeTab;
     await waitForIdle();
     if (activeTab !== expectedTab || refreshButton.disabled) return;
@@ -553,7 +624,7 @@
     autoSync.changed();
     await cloudAction(false, true);
   });
-  syncButton.addEventListener('click', () => { if (activeTab === 'shared') cloudAction(true); });
+  syncButton.addEventListener('click', () => { if (activeTab !== 'device') cloudAction(true); });
   colorTheme.value = CopyNotesTheme.get();
   CopyNotesTheme.subscribe(value => { colorTheme.value = value; });
   function applySelectedTheme() {
@@ -569,15 +640,18 @@
   loginForm.addEventListener('submit', async event => {
     event.preventDefault();
     if (busy || authenticated) return;
-    const code = loginNumber.value;
-    if (!/^[0-9]{5}$/.test(code)) { loginError.textContent = '半角数字5桁で入力してください'; return; }
+    const code = loginNumber.value.toUpperCase();
+    if (!/^(?:[0-9]{5}|G[0-9]{4})$/.test(code)) { loginError.textContent = '通常番号は数字5桁、グループ番号はG＋数字4桁で入力してください'; return; }
     busy = true; updateWorkspace();
     let success = false;
     try {
       const auth = await request('auth', 'POST', { code });
       saveNotes();
+      const targetWorkspace = auth.workspace || (code.startsWith('G') ? 'group' : 'shared');
+      if (targetWorkspace !== cloudTab) selectCloud(targetWorkspace);
       authenticated = true; roomId = auth.roomId; sharedNotes = readShared();
-      activeTab = 'shared'; cloudMessage = ''; loginNumber.value = '';
+      activeTab = targetWorkspace; cloudMessage = ''; loginNumber.value = '';
+      rememberCloud();
       loginDialog.close(); renderNotes(); success = true;
     } catch (error) { loginError.textContent = error.message; }
     finally { busy = false; updateWorkspace(); }
@@ -589,6 +663,7 @@
     try {
       await request('auth', 'DELETE');
       authenticated = false; roomId = null; sharedNotes = []; cloudMessage = '';
+      rememberCloud();
       activeTab = 'device'; loginDialog.close(); renderNotes(); announce('ログアウトしました');
     } catch (error) {
       if (error.status === 401) resetAuthentication();
@@ -834,7 +909,7 @@
     for (const row of list.children) {
       const button = row.querySelector('.attach-image');
       button.disabled = reached || Boolean(row.pendingAttachments) || row.noteImages.length > 0 || row.querySelector('textarea').value.length > 0;
-      button.title = reached ? '画像は端末・共有それぞれ3枚までです' : '画像を追加（1枚20MiBまで）';
+      button.title = reached ? '画像は保存先ごとに3枚までです' : '画像を追加（1枚20MiBまで）';
     }
   }
 
@@ -843,7 +918,7 @@
     if (files.some(file => !file.type.startsWith('image/'))) { announce('画像のみ添付できます'); return; }
     const blocked = () => rowContent(row).text.length > 0 || row.noteImages.length >= CopyNotesImages.maxImages || imageNoteCount() >= CopyNotesImages.maxImageNotes;
     const explain = () => announce(row.noteImages.length >= CopyNotesImages.maxImages ? '画像は1つのメモに1枚までです'
-      : rowContent(row).text.length ? '文字と画像は別々のメモにしてください' : (activeTab === 'device' ? '端末' : '共有') + 'の画像は3枚（3メモ分）までです');
+      : rowContent(row).text.length ? '文字と画像は別々のメモにしてください' : (activeTab === 'device' ? '端末' : activeTab === 'group' ? 'グループ' : '共有') + 'の画像は3枚（3メモ分）までです');
     if (blocked()) { explain(); return; }
     const tab = activeTab;
     preparingImages++;
@@ -877,7 +952,7 @@
     const input = row.querySelector("textarea");
     const button = row.querySelector(".copy-button");
     const number = list.children.length + 1;
-    if (activeTab === 'shared') {
+    if (activeTab !== 'device') {
       if (!model) { model = sharing.draft(value); sharedNotes.push(model); }
       row.dataset.noteId = model.id;
     } else {
@@ -976,7 +1051,7 @@
   renderNotes();
   bootstrap();
   addButton.addEventListener("click", () => {
-    if (activeTab === 'shared' && !authenticated) return;
+    if (activeTab !== 'device' && !authenticated) return;
     addNote("");
     saveNotes();
     autoSync.changed();

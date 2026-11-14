@@ -19,7 +19,7 @@ function events() {
   };
 }
 
-function setup({ reduced = false, disabled = false } = {}) {
+function setup({ reduced = false, disabled = false, count = 2 } = {}) {
   let time = 0, nextFrame = 0, captured = null, focused = null;
   const frames = new Map(), styles = new Map(), classes = new Set(), changes = [];
   const motion = Object.assign(events(), { matches: reduced });
@@ -29,7 +29,7 @@ function setup({ reduced = false, disabled = false } = {}) {
     cancelAnimationFrame(id) { frames.delete(id); },
   });
   const document = Object.assign(events(), { defaultView: view, visibilityState: 'visible' });
-  const tabs = [0, 1].map(index => ({
+  const tabs = Array.from({ length: count }, (_, index) => ({
     disabled: index === 1 && disabled, selected: index === 0,
     getAttribute: () => String(tabs[index].selected),
     getBoundingClientRect: () => ({ left: 6 + index * 160, width: 156 }),
@@ -75,6 +75,20 @@ test('clicks and keyboard activation keep selection and focus in sync', () => {
   assert.equal(h.styles.get('--tab-x'), '160.000px');
   assert.equal(h.styles.get('--tab-scale-x'), '1.0000');
   assert.equal(h.frames.size, 0, 'the spring stops scheduling frames at rest');
+});
+
+test('three tabs support direct group activation, keyboard wrapping and dragging across all destinations', () => {
+  const h = setup({ count: 3, reduced: true });
+  h.root.fire('click', { target: h.tabs[2], detail: 0 });
+  assert.equal(h.selected, 2); assert.equal(h.styles.get('--tab-x'), '320.000px');
+  for (const [key, expected] of [['ArrowRight', 0], ['ArrowLeft', 2], ['Home', 0], ['End', 2]]) {
+    h.root.fire('keydown', { key }); assert.equal(h.selected, expected);
+  }
+  h.pointer('pointerdown', 380, { target: h.tabs[2] });
+  h.pointer('pointermove', 60); h.tick(10); h.pointer('pointerup', 60);
+  assert.equal(h.selected, 0);
+  h.pointer('pointerdown', 60); h.pointer('pointermove', 220); h.tick(10); h.pointer('pointerup', 220);
+  assert.equal(h.selected, 1);
 });
 
 test('mouse, touch and pen drags follow continuously and settle into either tab once', () => {
