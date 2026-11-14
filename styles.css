@@ -178,18 +178,21 @@ button { -webkit-tap-highlight-color: transparent; }
   pointer-events: none;
 }
 .toolbar-button svg { display: block; flex-shrink: 0; width: 18px; height: 18px; }
-/* Fade the current palette so disabled controls remain themed. */
+/* Unavailable actions fade; temporary request locks keep their normal glass. */
 :is(.toolbar-button, .account-button, .login-submit, .logout-button):disabled {
+  opacity: 1; -webkit-text-fill-color: currentColor;
+}
+:is(.toolbar-button, .account-button, .login-submit, .logout-button):disabled:not([aria-busy="true"]) {
   opacity: .45; -webkit-text-fill-color: currentColor; cursor: default; box-shadow: none;
 }
-:is(.toolbar-button, .account-button, .login-submit, .logout-button):disabled::before { opacity: 0; }
+:is(.toolbar-button, .account-button, .login-submit, .logout-button):disabled:not([aria-busy="true"])::before { opacity: 0; }
 .toolbar-button[aria-busy="true"], .account-button[aria-busy="true"] { cursor: progress; }
 .toolbar-button:not(:disabled):active, .account-button:not(:disabled):active, .login-submit:not(:disabled):active {
   transform: scale(.96); background: var(--control-active);
   box-shadow: 0 2px 6px #314d5210, inset 0 1px 3px #314d520a;
 }
 @media (hover: hover) {
-  .toolbar-button:hover:not(:disabled), .account-button:hover:not(:disabled), .login-submit:hover:not(:disabled) {
+  .toolbar-button:hover:is(:not(:disabled), [aria-busy="true"]), .account-button:hover:is(:not(:disabled), [aria-busy="true"]), .login-submit:hover:not(:disabled) {
     background: var(--control-hover);
     box-shadow: 0 7px 22px #314d521a, 0 2px 4px #314d5208, inset 0 1px 0 var(--glass-inset);
     transform: translateY(-1px);
@@ -228,7 +231,7 @@ button { -webkit-tap-highlight-color: transparent; }
 }
 .workspace-tab[aria-selected="true"] { color: var(--tab-selected); }
 .workspace-tab:active:not(:disabled) { background: transparent; transform: scale(.97); }
-.workspace-tab:disabled { opacity: 1; color: var(--text); background: var(--page); cursor: default; }
+.workspace-tab:disabled { opacity: 1; -webkit-text-fill-color: currentColor; cursor: default; }
 .workspace-tab:focus-visible { outline: 2px solid #829c8e; outline-offset: -3px; }
 @media (prefers-reduced-motion: reduce) {
   .workspace-tabs::before, .workspace-tab { transition: none; }
