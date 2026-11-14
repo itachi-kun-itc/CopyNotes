@@ -260,6 +260,16 @@ button { -webkit-tap-highlight-color: transparent; }
 .login-heading, .settings-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .login-heading h1, .settings-heading h2 { margin: 0; font-size: 19px; font-weight: 600; }
 .settings-label { display: block; margin: 24px 0 10px; font-size: 14px; font-weight: 600; }
+.detection-settings { margin-top: 24px; border-top: 1px solid var(--border); }
+.settings-toggle { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 64px; font-size: 14px; }
+.settings-toggle + .settings-toggle { border-top: 1px solid var(--border); }
+.detection-switch { position: relative; flex-shrink: 0; width: 72px; min-height: 44px; padding: 0 30px 0 9px; border: 1px solid var(--border); border-radius: 999px; background: var(--surface); color: var(--muted); font-size: 12px; font-weight: 600; cursor: pointer; }
+.detection-switch::after { content: ""; position: absolute; width: 20px; height: 20px; top: 11px; left: 7px; border-radius: 50%; background: currentColor; transition: transform 180ms; }
+.detection-switch[aria-checked="false"] { padding: 0 9px 0 30px; }
+.detection-switch[aria-checked="true"] { color: var(--tab-selected); background: var(--control-hover); }
+.detection-switch[aria-checked="true"]::after { transform: translateX(36px); }
+.detection-switch:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
+@media (prefers-reduced-motion: reduce) { .detection-switch::after { transition: none; } }
 .theme-select { width: 100%; min-height: 48px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; color: var(--text); background: var(--surface); font-size: 16px; cursor: pointer; }
 .theme-select:focus-visible { outline: 2px solid var(--focus); outline-offset: 3px; }
 .dialog-close { width: 36px; height: 36px; border: 0; border-radius: 8px; color: var(--muted); background: transparent; font-size: 25px; cursor: pointer; }

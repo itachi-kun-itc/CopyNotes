@@ -110,6 +110,33 @@ test("plain text stays unchanged and incomplete code is recognized early", () =>
   assert.equal(syntax.detect("if (ready) {"), "javascript");
 });
 
+test('disabling code detection stops keyboard, mobile input and paste assistance until reenabled', () => {
+  let enabled = false;
+  const listeners = new Map();
+  const input = {
+    value: 'values = []', selectionStart: 10, selectionEnd: 10,
+    addEventListener(type, listener) { listeners.set(type, listener); },
+    setAttribute() {},
+    setSelectionRange(start, end) { this.selectionStart = start; this.selectionEnd = end; },
+  };
+  editor.attach(input, { enabled: () => enabled });
+  const fire = (type, properties) => {
+    const event = { cancelable: true, prevented: false, preventDefault() { this.prevented = true; }, ...properties };
+    listeners.get(type)(event);
+    return event;
+  };
+  for (const key of ['Enter', 'Tab', 'Backspace']) assert.equal(fire('keydown', { key }).prevented, false);
+  assert.equal(fire('beforeinput', { inputType: 'insertText', data: ']' }).prevented, false);
+  assert.equal(fire('beforeinput', { inputType: 'insertParagraph' }).prevented, false);
+  assert.equal(fire('paste', { clipboardData: { getData() { throw new Error('disabled editor must leave the paste untouched'); } } }).prevented, false);
+  assert.equal(input.selectionStart, 10);
+  assert.equal(input.value, 'values = []');
+  enabled = true;
+  assert.equal(fire('beforeinput', { inputType: 'insertText', data: ']' }).prevented, true);
+  assert.equal(input.selectionStart, 11, 'reenabling restores skipping a closing bracket');
+  assert.equal(input.value, 'values = []');
+});
+
 test("literal brackets, escaped quotes, and triple-quoted strings remain editable", () => {
   const literal = 'x = "a]b"';
   assert.equal(editor.character(literal, literal.indexOf("]"), literal.indexOf("]"), "]", "python"), null);

@@ -64,6 +64,18 @@ test('links telephone numbers without splitting web links or email addresses', (
   }
 });
 
+test('phone and email detection switch independently without splitting disabled addresses or web links', () => {
+  const text = '090-1234-5678 / 090-9876-5432@example.com / user@www.example.org / https://example.com/03-1234-5678';
+  const all = find(text);
+  for (const phone of [false, true]) for (const email of [false, true]) {
+    const links = find(text, { phone, email });
+    assert.deepEqual(links, all.filter(link => link.href.startsWith('tel:') ? phone : link.href.startsWith('mailto:') ? email : true));
+    assert.ok(links.some(link => link.href.startsWith('https:')));
+    for (const link of links) assert.equal(text.slice(link.start, link.end), link.text);
+    assert.equal(render(document, text, CopyNotesSyntax.tokenize(text, null), links).textContent, text);
+  }
+});
+
 test('recognizes varied domestic and international formats while keeping the original text and offsets', () => {
   const samples = [
     ['03-1234-5678', '+81312345678'], ['045-123-4567', '+81451234567'],

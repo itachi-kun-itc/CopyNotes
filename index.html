@@ -97,6 +97,20 @@
       <option value="navy">ネイビー</option>
       <option value="system">端末の設定に合わせる</option>
     </select>
+    <div class="detection-settings" role="group" aria-label="自動検知">
+      <div class="settings-toggle">
+        <span id="detectCodeLabel">コード検知</span>
+        <button id="detectCode" class="detection-switch" type="button" role="switch" aria-checked="true" aria-labelledby="detectCodeLabel">ON</button>
+      </div>
+      <div class="settings-toggle">
+        <span id="detectPhoneLabel">電話番号検知</span>
+        <button id="detectPhone" class="detection-switch" type="button" role="switch" aria-checked="true" aria-labelledby="detectPhoneLabel">ON</button>
+      </div>
+      <div class="settings-toggle">
+        <span id="detectEmailLabel">メールアドレス検知</span>
+        <button id="detectEmail" class="detection-switch" type="button" role="switch" aria-checked="true" aria-labelledby="detectEmailLabel">ON</button>
+      </div>
+    </div>
   </dialog>
   <div id="status" class="status" role="status" aria-live="polite" aria-atomic="true"></div>
   <div id="noteMenu" class="note-menu" role="menu" aria-label="入力欄の操作" hidden>

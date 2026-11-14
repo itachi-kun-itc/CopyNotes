@@ -100,7 +100,7 @@ function boot({ clipboard = true, formats = ['image/png', 'text/plain'], indexed
     CopyNotesTabs: { attach: (element, options) => { selectTab = options.onChange; return { sync() {} }; } },
     CopyNotesSyntax: { detect: () => null, tokenize: () => [] },
     CopyNotesLinks: { find: () => [], render: () => document.createElement('span') },
-    CopyNotesLimits: { attach() {} }, CopyNotesEditor: { attach() {} },
+    CopyNotesLimits: { attach() {} }, CopyNotesEditor: { attach(input, options) { input.editorOptions = options; } },
   });
   for (const file of ['app-config.js', 'theme.js', 'note-images.js', 'attachment-storage.js', 'image-transfer.js', 'sharing.js', 'device-storage.js', 'reorder-notes.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'), context);
   if (config) context.CopyNotesConfig = config;
@@ -356,6 +356,50 @@ test('settings replace notices, persist themes locally and never send a shared u
   assert.equal(reloaded.context.document.querySelector('#colorTheme').value, 'dark');
   const otherDevice = boot({ authenticated: true }); await otherDevice.ready;
   assert.equal(otherDevice.context.document.dataset.theme, 'light');
+});
+
+test('detection switches repaint existing notes immediately, preserve text and persist independently of themes', async () => {
+  const app = boot(); await settled(app);
+  const document = app.context.document;
+  document.createDocumentFragment = () => document.createElement('fragment');
+  document.createTextNode = text => { const node = document.createElement('text'); node.textContent = text; return node; };
+  app.context.libphonenumber = require('../assets/vendor/libphonenumber-max.js');
+  for (const file of ['syntax.js', 'links.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'), app.context);
+  app.add();
+  const row = app.row(), input = row.querySelector('textarea');
+  const text = 'const phone = "090-1234-5678";\nconst email = "user@example.com";\nconst url = "https://example.com";';
+  input.value = text; input.dispatchEvent({ type: 'input' });
+  const links = () => row.querySelector('.note-highlight').querySelectorAll('a').map(anchor => anchor.href);
+  const all = ['tel:+819012345678', 'mailto:user@example.com', 'https://example.com/'];
+  assert.deepEqual(links(), all);
+  assert.equal(row.classList.contains('is-code'), true);
+  assert.equal(input.editorOptions.enabled(), true);
+  const noteBefore = app.disk.get('copynotes.notes.v5');
+  const requestsBefore = app.requests.length;
+  const code = document.querySelector('#detectCode'), phone = document.querySelector('#detectPhone'), email = document.querySelector('#detectEmail');
+  assert.equal(code.attributes['aria-checked'], 'true');
+  phone.click(); assert.deepEqual(links(), all.slice(1));
+  email.click(); assert.deepEqual(links(), all.slice(2));
+  code.click(); assert.equal(row.classList.contains('is-code'), false);
+  assert.equal(input.editorOptions.enabled(), false);
+  assert.equal(input.attributes.autocorrect, 'on');
+  assert.equal(code.textContent, 'OFF'); assert.equal(code.attributes['aria-checked'], 'false');
+  assert.equal(input.value, text);
+  assert.equal(app.disk.get('copynotes.notes.v5'), noteBefore);
+  assert.equal(app.requests.length, requestsBefore, 'changing detection never sends a cloud request');
+  const theme = document.querySelector('#colorTheme'); theme.value = 'dark'; theme.dispatchEvent({ type: 'change' });
+  const reloaded = boot({ savedDisk: app.disk }); await settled(reloaded);
+  for (const selector of ['#detectCode', '#detectPhone', '#detectEmail']) {
+    assert.equal(reloaded.context.document.querySelector(selector).attributes['aria-checked'], 'false');
+  }
+  assert.equal(reloaded.context.document.querySelector('#colorTheme').value, 'dark');
+  phone.click(); assert.deepEqual(links(), [all[0], all[2]]);
+  email.click(); code.click(); assert.deepEqual(links(), all);
+  assert.equal(row.classList.contains('is-code'), true);
+  assert.equal(input.editorOptions.enabled(), true);
+  app.disk.delete('copynotes.detection.v1');
+  app.context.window.dispatchEvent({ type: 'storage', key: null });
+  assert.equal(phone.textContent, 'ON');
 });
 
 test('refresh stays disabled on the device tab and is available only for authenticated shared notes', async () => {

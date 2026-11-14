@@ -83,6 +83,15 @@
   const settingsDialog = document.querySelector('#settingsDialog');
   const closeSettings = document.querySelector('#closeSettings');
   const colorTheme = document.querySelector('#colorTheme');
+  const detectionKey = 'copynotes.detection.v1';
+  const detectionFields = [['code', '#detectCode'], ['phone', '#detectPhone'], ['email', '#detectEmail']]
+    .map(([name, selector]) => [name, document.querySelector(selector)]);
+  let detection = readDetection();
+  function readDetection() {
+    let saved;
+    try { saved = JSON.parse(localStorage.getItem(detectionKey)); } catch { /* Keep detection enabled by default. */ }
+    return Object.fromEntries(['code', 'phone', 'email'].map(name => [name, typeof saved?.[name] === 'boolean' ? saved[name] : true]));
+  }
   const accountButton = document.querySelector('#accountButton');
   const deviceTab = document.querySelector('#deviceTab');
   const sharedTab = document.querySelector('#sharedTab');
@@ -376,6 +385,7 @@
     syncButton.title = !shared ? '共有・グループタブで同期できます' : authenticated ? workspaceLabel + 'タブの変更を送信' : 'ログイン後に同期できます';
     syncButton.setAttribute('aria-busy', String(busy && shared && authenticated));
     addButton.disabled = shared && !authenticated;
+    addButton.hidden = shared && !authenticated;
     sharedTab.disabled = busy;
     groupTab.disabled = busy;
     tabMotion?.sync();
@@ -637,6 +647,21 @@
     openModal(settingsDialog);
   });
   closeSettings.addEventListener('click', () => settingsDialog.close());
+  function refreshDetection() {
+    for (const [name, field] of detectionFields) {
+      field.setAttribute('aria-checked', String(detection[name]));
+      field.textContent = detection[name] ? 'ON' : 'OFF';
+    }
+    for (const input of list.querySelectorAll('textarea')) highlight(input);
+    scheduleResizeNotes();
+  }
+  for (const [name, field] of detectionFields) field.addEventListener('click', () => {
+    detection[name] = !detection[name];
+    refreshDetection();
+    try { localStorage.setItem(detectionKey, JSON.stringify(detection)); }
+    catch { announce('このブラウザでは設定を保存できません'); }
+  });
+  refreshDetection();
   loginForm.addEventListener('submit', async event => {
     event.preventDefault();
     if (busy || authenticated) return;
@@ -800,13 +825,13 @@
   function highlight(input) {
     const row = input.closest(".note-row");
     const preview = row.querySelector(".note-highlight");
-    const language = CopyNotesSyntax.detect(input.value);
+    const language = detection.code ? CopyNotesSyntax.detect(input.value) : null;
     input.autocapitalize = language ? "off" : "sentences";
     input.setAttribute("autocorrect", language ? "off" : "on");
     row.classList.toggle("is-code", Boolean(language));
     if (language) row.dataset.language = language;
     else delete row.dataset.language;
-    const links = CopyNotesLinks.find(input.value);
+    const links = CopyNotesLinks.find(input.value, detection);
     row.classList.toggle("has-links", links.length > 0);
     preview.replaceChildren(CopyNotesLinks.render(document, input.value, CopyNotesSyntax.tokenize(input.value, language), links));
     updateLinkState(input);
@@ -993,7 +1018,7 @@
     row.querySelector('.reorder-handle').setAttribute('aria-label', `メモ ${number} を並べ替え（↑↓キーでも移動）`);
     updateNoteState(row);
     CopyNotesLimits.attach(input);
-    CopyNotesEditor.attach(input);
+    CopyNotesEditor.attach(input, { enabled: () => detection.code });
     input.addEventListener("focus", () => updateLinkState(input));
     input.addEventListener("blur", () => updateLinkState(input));
     input.addEventListener("input", () => {
@@ -1084,6 +1109,9 @@
   window.addEventListener('offline', () => autoSync.pause());
   window.addEventListener('focus', () => { refreshDeviceNotes(); autoSync.refresh(); });
   window.addEventListener('storage', event => {
+    if ((event.key === detectionKey || event.key === null) && (!event.storageArea || event.storageArea === localStorage)) {
+      detection = readDetection(); refreshDetection();
+    }
     if (event.key === CopyNotesDeviceStorage.key || event.key === null) refreshDeviceNotes();
     if (event.key === CopyNotesReorder.orderPrefix + orderWorkspace() || event.key === null) {
       waitForIdle().then(() => renderNotes(true));

@@ -264,7 +264,7 @@ globalThis.CopyNotesEditor = (() => {
     return formatted !== inserted ? edit(start, end, formatted) : null;
   }
 
-  function attach(input) {
+  function attach(input, { enabled = () => true } = {}) {
     let composing = false;
     let escapeTab = false;
     function apply(change) {
@@ -288,6 +288,7 @@ globalThis.CopyNotesEditor = (() => {
     input.addEventListener("compositionstart", () => { composing = true; });
     input.addEventListener("compositionend", () => { composing = false; });
     input.addEventListener("keydown", event => {
+      if (!enabled()) { escapeTab = false; return; }
       if (event.isComposing || composing || event.keyCode === 229 || event.ctrlKey || event.metaKey || event.altKey) return;
       if (event.key === "Escape") { escapeTab = true; return; }
       if (event.key === "Tab" && escapeTab) { escapeTab = false; return; }
@@ -300,6 +301,7 @@ globalThis.CopyNotesEditor = (() => {
       if (change && (apply(change) || event.key === 'Tab')) event.preventDefault();
     });
     input.addEventListener("beforeinput", event => {
+      if (!enabled()) return;
       if (event.isComposing || composing || !event.cancelable) return;
       const { value, selectionStart: start, selectionEnd: end } = input;
       const language = syntax().detect(value);
@@ -309,6 +311,7 @@ globalThis.CopyNotesEditor = (() => {
       if (change && apply(change)) event.preventDefault();
     });
     input.addEventListener("paste", event => {
+      if (!enabled()) return;
       if (composing || !event.clipboardData) return;
       const inserted = event.clipboardData.getData("text/plain");
       const change = paste(input.value, input.selectionStart, input.selectionEnd, inserted);

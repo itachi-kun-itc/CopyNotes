@@ -2,7 +2,7 @@
 
 globalThis.CopyNotesLinks = (() => {
   const phoneNumbers = typeof require === 'function' ? require('./assets/vendor/libphonenumber-max.js') : globalThis.libphonenumber;
-  function find(text) {
+  function find(text, { phone = true, email = true } = {}) {
     const links = [];
     const pattern = /(?<email>[a-z0-9_%+'-]+(?:\.[a-z0-9_%+'-]+)*@(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+(?:xn--[a-z0-9-]{2,59}|[a-z]{2,63}))|\b(?:https?:\/\/|www\.)[^\s<>"'`「」『』【】（）｛｝［］、。！？]+/gi;
     for (const match of text.matchAll(pattern)) {
@@ -43,7 +43,7 @@ globalThis.CopyNotesLinks = (() => {
     phoneText += text.slice(position);
     phoneText = phoneText.replace(/[‐‑‒–—―−ー－]/g, '-');
     // Separate contact lists before matching so a slash cannot swallow earlier numbers.
-    for (const chunk of phoneText.matchAll(/[^\r\n/,;、，；]+/g)) {
+    if (phone) for (const chunk of phoneText.matchAll(/[^\r\n/,;、，；]+/g)) {
       for (const match of phoneNumbers.findPhoneNumbersInText(chunk[0], 'JP')) {
         let start = chunk.index + match.startsAt;
         const end = chunk.index + match.endsAt;
@@ -52,7 +52,8 @@ globalThis.CopyNotesLinks = (() => {
         links.push({ start, end, text: text.slice(start, end), href: match.number.getURI() });
       }
     }
-    return links.sort((a, b) => a.start - b.start);
+    // Disabled email detection still masks addresses during phone matching.
+    return links.filter(link => email || !link.href.startsWith('mailto:')).sort((a, b) => a.start - b.start);
   }
 
   function render(document, text, tokens, links = find(text)) {
