@@ -204,6 +204,8 @@
     sharedNotes = state.notes; cloudMessage = state.message;
   }
   const inFlightIds = new Set();
+  const videoUploads = new Map();
+  const uploadKey = (workspace, room, reference) => workspace + ':' + room + ':' + reference;
   const composingInputs = new Set();
   const idleWaiters = new Set();
   let removingCount = 0;
@@ -368,6 +370,7 @@
     const shared = activeTab !== 'device';
     const workspaceLabel = cloudTab === 'group' ? 'グループ' : '共有';
     updateImageButtons();
+    for (const row of list.children) updateVideoStatus(row);
     document.querySelector('.workspace-tabs').dataset.active = activeTab;
     for (const [name, tab] of [['device', deviceTab], ['shared', sharedTab], ['group', groupTab]]) {
       tab.setAttribute('aria-selected', String(activeTab === name));
@@ -545,6 +548,7 @@
     const orderKey = 'shared.' + expectedRoom;
     const send = (path, method, body) => request(path, method, body, workspace);
     const sent = synchronize ? sharing.batch(pendingOperations(state.notes)) : [];
+    const sentVideos = sent.flatMap(note => (note.images || []).filter(CopyNotesVideos.referenceId));
     const sentOrder = synchronize ? noteOrder.pending(orderKey) : null;
     sent.forEach(note => inFlightIds.add(note.id));
     if (sent.length) {
@@ -553,6 +557,7 @@
       persistShared(state.notes, expectedRoom);
     }
     busy = true;
+    for (const reference of sentVideos) videoUploads.set(uploadKey(workspace, expectedRoom, reference), { phase: 'uploading' });
     backgroundSync = automatic;
     if (!automatic && current()) cloudMessage = synchronize ? '同期中…' : '更新中…';
     updateWorkspace();
@@ -566,6 +571,7 @@
       if (current() && (roomId !== expectedRoom || !authenticated)) return false;
       noteOrder.merge(orderKey, data.noteOrder, sentOrder);
       const merged = sharing.merge(current() ? sharedNotes : state.notes, data.notes, sent);
+      for (const reference of sentVideos) videoUploads.delete(uploadKey(workspace, expectedRoom, reference));
       state.notes = merged.notes;
       if (compactRemoteBlanks) {
         const blankIds = new Set(data.notes.filter(note => !note.deleted && CopyNotesImages.isBlank(note)).map(note => note.id));
@@ -582,6 +588,7 @@
       if (!automatic || state.message) announce(state.message || (synchronize ? '同期しました' : '共有内容を更新しました'));
       return true;
     } catch (error) {
+      for (const reference of sentVideos) videoUploads.set(uploadKey(workspace, expectedRoom, reference), { phase: 'error', message: error.message });
       state.message = error.message;
       if (current()) {
         cloudMessage = error.message;
@@ -879,18 +886,19 @@
     const input = row.querySelector('textarea');
     const note = rowContent(row);
     const pending = Boolean(row.pendingAttachments);
-    const media = Boolean(note.images.length);
+    const attached = Boolean(note.images.length);
+    const media = attached || Boolean(row.provisionalVideo);
     const moveFocus = media && document.activeElement === input;
     const button = row.querySelector('.copy-button');
     const video = Boolean(CopyNotesVideos.referenceId(note.images[0]));
-    const unsupported = media && !(video ? CopyNotesVideos.canCopy() : CopyNotesImages.canCopy());
-    button.disabled = !note.text.length && !media || unsupported;
+    const unsupported = attached && !(video ? CopyNotesVideos.canCopy() : CopyNotesImages.canCopy());
+    button.disabled = !note.text.length && !attached || unsupported;
     button.removeAttribute('data-copied');
     button.title = unsupported ? 'この形式・ブラウザではコピーできません。下のDLボタンをご利用ください' : video ? '動画をコピー（CopyNotes内に貼り付け）' : 'コピー';
     button.setAttribute('aria-label', 'メモをコピー');
     const download = row.querySelector('.download-button');
-    download.hidden = !media;
-    download.disabled = !media;
+    download.hidden = !attached;
+    download.disabled = !attached;
     download.setAttribute('aria-label', video ? '動画をダウンロード' : '画像をダウンロード');
     row.classList.toggle('has-attachment', media);
     // Keep subsequent pastes in this memo when its text editor disappears.
@@ -909,14 +917,40 @@
     releaseVideo(row);
     const gallery = row.querySelector('.note-images');
     gallery.replaceChildren();
-    gallery.hidden = row.noteImages.length === 0;
-    row.noteImages.forEach((src, index) => {
+    gallery.hidden = row.noteImages.length === 0 && !row.provisionalVideo;
+    const sources = row.noteImages.length ? row.noteImages : row.provisionalVideo ? [null] : [];
+    sources.forEach((src, index) => {
       const item = document.createElement('div'); item.className = 'note-image';
-      if (CopyNotesVideos.referenceId(src)) {
+      if (src === null || CopyNotesVideos.referenceId(src)) {
+        item.classList.add('note-video');
         const video = document.createElement('video');
-        video.controls = true; video.playsInline = true; video.preload = 'metadata';
+        video.controls = src !== null; video.playsInline = true; video.preload = 'metadata';
         video.setAttribute('aria-label', '添付動画');
         item.append(video); gallery.append(item);
+        const overlay = document.createElement('div'); overlay.className = 'video-upload-status';
+        const spinner = document.createElement('span'); spinner.className = 'video-spinner'; spinner.setAttribute('aria-hidden', 'true');
+        const retry = document.createElement('button'); retry.className = 'video-retry'; retry.type = 'button'; retry.textContent = '↻';
+        retry.setAttribute('aria-label', '動画を再試行');
+        retry.addEventListener('click', event => {
+          event.preventDefault(); event.stopImmediatePropagation();
+          if (row.pendingAttachments || busy) return;
+          if (row.provisionalVideo) {
+            const provisional = row.provisionalVideo; row.provisionalVideo = null;
+            if (!attachImages(row, [provisional.file])) {
+              row.provisionalVideo = provisional; renderImages(row); updateWorkspace();
+            }
+          } else {
+            row.videoRetry = cloudAction(true, false, true, row.videoWorkspace);
+          }
+        });
+        overlay.append(spinner, retry); item.append(overlay);
+        updateVideoStatus(row);
+        if (src === null) {
+          if (row.provisionalVideo.file instanceof Blob) {
+            row.videoUrl = URL.createObjectURL(row.provisionalVideo.file); video.src = row.videoUrl;
+          }
+          return;
+        }
         CopyNotesVideos.get(src).then(record => {
           if (!record) throw new Error('動画が見つかりません。共有先を再読み込みしてください');
           if (!video.isConnected || row.noteImages[0] !== src) return;
@@ -930,13 +964,28 @@
     });
   }
 
+  function updateVideoStatus(row) {
+    const overlay = row.querySelector('.video-upload-status');
+    if (!overlay) return;
+    const state = row.provisionalVideo || videoUploads.get(uploadKey(row.videoWorkspace, row.videoRoom, row.noteImages[0]));
+    const failed = state?.phase === 'error';
+    overlay.hidden = !state;
+    overlay.setAttribute('role', failed ? 'group' : 'status');
+    overlay.setAttribute('aria-label', failed ? state.message || '動画を処理できませんでした' : row.provisionalVideo ? '動画を準備中' : '動画をアップロード中');
+    overlay.querySelector('.video-spinner').hidden = failed;
+    const retry = overlay.querySelector('.video-retry'); retry.hidden = !failed;
+    retry.disabled = busy || Boolean(row.pendingAttachments);
+    retry.title = (state?.message ? state.message + ' — ' : '') + '動画を再試行';
+    row.setAttribute('aria-busy', String(Boolean(row.pendingAttachments) || Boolean(state && !failed)));
+  }
+
   function releaseVideo(row) {
     const video = row.querySelector('video');
     if (video) { video.pause(); video.removeAttribute('src'); video.load(); }
     if (row.videoUrl) { URL.revokeObjectURL(row.videoUrl); row.videoUrl = null; }
   }
 
-  function imageNoteCount(videos = false) {
+  function imageNoteCount(videos = false, excludeId = null) {
     const ids = new Set();
     const matches = sources => sources?.length && Boolean(CopyNotesVideos.referenceId(sources[0])) === videos;
     if (activeTab === 'device') {
@@ -949,7 +998,8 @@
     for (const note of activeTab === 'device' ? deviceNotes : sharedNotes) {
       if (!note.deleted && matches(note.images)) ids.add(note.id);
     }
-    for (const row of list.children) if (!row.classList.contains('is-removing') && matches(row.noteImages)) ids.add(row.dataset.noteId);
+    for (const row of list.children) if (!row.classList.contains('is-removing') && (matches(row.noteImages) || videos && row.provisionalVideo)) ids.add(row.dataset.noteId);
+    if (excludeId) ids.delete(excludeId);
     return ids.size;
   }
 
@@ -958,7 +1008,7 @@
     const videoReached = imageNoteCount(true) >= 1;
     for (const row of list.children) {
       const button = row.querySelector('.attach-image');
-      button.disabled = reached && videoReached || Boolean(row.pendingAttachments) || row.noteImages.length > 0 || row.querySelector('textarea').value.length > 0;
+      button.disabled = reached && videoReached || Boolean(row.pendingAttachments) || Boolean(row.provisionalVideo) || row.noteImages.length > 0 || row.querySelector('textarea').value.length > 0;
       button.title = reached && videoReached ? '画像3枚・動画1本の上限に達しています' : '画像・動画を追加（画像20MiB、動画30秒・300MBまで）';
       row.querySelector('.image-input').accept = reached ? 'video/*' : videoReached ? 'image/*' : 'image/*,video/*';
     }
@@ -966,15 +1016,20 @@
 
   function attachImages(row, files) {
     if (!files.length) return;
+    if (row.provisionalVideo) { announce('この動画の処理完了を待つか、再試行してください'); return; }
     if (files.some(file => !/^(image|video)\//.test(file.type))) { announce('画像・動画のみ添付できます'); return; }
     const isVideo = file => file.type.startsWith('video/');
-    const blocked = file => rowContent(row).text.length > 0 || row.noteImages.length >= CopyNotesImages.maxImages || (isVideo(file) ? imageNoteCount(true) >= 1 : imageNoteCount() >= CopyNotesImages.maxImageNotes);
+    const blocked = file => rowContent(row).text.length > 0 || row.noteImages.length >= CopyNotesImages.maxImages || (isVideo(file) ? imageNoteCount(true, row.dataset.noteId) >= 1 : imageNoteCount() >= CopyNotesImages.maxImageNotes);
     const explain = file => announce(row.noteImages.length >= CopyNotesImages.maxImages ? '画像・動画は1つのメモに1つまでです'
       : rowContent(row).text.length ? '文字と画像・動画は別々のメモにしてください' : isVideo(file) ? '動画は保存先ごとに1本までです' : (activeTab === 'device' ? '端末' : activeTab === 'group' ? 'グループ' : '共有') + 'の画像は3枚（3メモ分）までです');
     if (blocked(files[0])) { explain(files[0]); return; }
     const tab = activeTab, attachmentRoom = roomId;
     preparingImages++;
-    row.pendingAttachments = (row.pendingAttachments || 0) + 1; updateNoteState(row);
+    row.pendingAttachments = (row.pendingAttachments || 0) + 1;
+    if (isVideo(files[0])) {
+      row.provisionalVideo = { file: files[0], phase: 'preparing' };
+      renderImages(row); updateWorkspace();
+    } else updateNoteState(row);
     row.attachmentQueue = (row.attachmentQueue || Promise.resolve()).then(async () => {
       let added = 0;
       for (const file of files) {
@@ -989,16 +1044,25 @@
           const commit = async () => {
             await attachmentStorage?.refresh();
             if (!row.isConnected || activeTab !== tab || roomId !== attachmentRoom || row.classList.contains('is-removing')) return;
-            if (blocked(file)) { explain(file); return; }
+            if (blocked(file)) throw new Error(video ? '動画は保存先ごとに1本までです' : '画像は保存先ごとに3枚までです');
+            row.provisionalVideo = null;
             row.noteImages.push(prepared);
+            if (video && tab !== 'device') videoUploads.set(uploadKey(tab, attachmentRoom, prepared), { phase: 'uploading' });
             renderImages(row); saveNotes(); autoSync.changed(); added++;
           };
           if (tab === 'device' && navigator.locks) await navigator.locks.request('copynotes-device-attachments', commit);
           else await commit();
-        } catch (error) { announce(error.message || '添付内容を読み込めませんでした'); }
+        } catch (error) {
+          if (row.provisionalVideo) { row.provisionalVideo.phase = 'error'; row.provisionalVideo.message = error.message; updateVideoStatus(row); }
+          announce(error.message || '添付内容を読み込めませんでした');
+        }
       }
       if (added && files.length === added) announce(isVideo(files[0]) ? '動画を追加しました' : '画像を追加しました');
-    }).finally(() => { row.pendingAttachments--; updateNoteState(row); preparingImages--; releaseIdle(); autoSync.changed(); });
+    }).finally(() => {
+      row.pendingAttachments--; updateNoteState(row); updateVideoStatus(row);
+      preparingImages--; releaseIdle(); autoSync.changed();
+    });
+    return true;
   }
 
   function addNote(value = "", model = null) {
@@ -1014,6 +1078,11 @@
       row.dataset.noteId = model.id;
     }
     let copiedTimer;
+    row.videoWorkspace = activeTab; row.videoRoom = roomId;
+    if (activeTab !== 'device' && model.dirty) for (const reference of model.images || []) {
+      const key = uploadKey(activeTab, roomId, reference);
+      if (CopyNotesVideos.referenceId(reference) && !videoUploads.has(key)) videoUploads.set(key, { phase: 'uploading' });
+    }
     input.value = value;
     row.noteImages = [...(model.images || [])];
     renderImages(row);
@@ -1044,7 +1113,7 @@
       const files = Array.from(fileInput.files); fileInput.value = '';
       if (files.length) attachImages(row, files);
     });
-    input.addEventListener('input', () => { if (row.noteImages.length) input.value = ''; }, true);
+    input.addEventListener('input', () => { if (row.noteImages.length || row.provisionalVideo) input.value = ''; }, true);
     input.setAttribute("aria-haspopup", "menu");
     input.setAttribute("aria-controls", "noteMenu");
     input.setAttribute("aria-label", `コピーするテキスト ${number}`);

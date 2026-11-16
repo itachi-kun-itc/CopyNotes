@@ -70,6 +70,14 @@ test('seeking or interacting with the video player never swipes the memo away', 
   h.end(); assert.equal(h.deleted.length, 0);
 });
 
+test('tapping the video retry button never starts swipe deletion', () => {
+  const h = setup();
+  const retry = { closest: selector => selector === '.video-retry' ? retry : selector === '.note-row' ? h.row : null };
+  h.list.fire('touchstart', { target: retry, touches: [h.point(300)] });
+  assert.equal(h.touch.active, false); assert.equal(h.move(0).prevented, false);
+  h.end(); assert.equal(h.deleted.length, 0);
+});
+
 test("vertical scrolling, diagonal motion and rightward swipes never delete or block scrolling", () => {
   for (const [x, y] of [[290, 100], [250, 80], [320, 10]]) {
     const h = setup(); h.start(); assert.equal(h.move(x, y).prevented, false);

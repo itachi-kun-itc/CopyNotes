@@ -83,7 +83,7 @@ function boot({ clipboard = true, formats = ['image/png', 'text/plain'], indexed
   } } };
   const disk = savedDisk || new Map(), downloads = [], copiedImages = [], requests = [], frames = [];
   let selectTab, runAutoSync;
-  const context = vm.createContext({ document, window: new Element('window'), crypto, URL, Blob, atob, Uint8Array, TextEncoder,
+  const context = vm.createContext({ document, window: new Element('window'), crypto, URL, Blob, atob, btoa, Uint8Array, TextEncoder,
     navigator: { onLine: true, clipboard: clipboard ? { write: async () => {}, writeText: async () => {} } : undefined }, location: { origin },
     ClipboardItem: class { constructor(data) { this.data = data; } static supports(type) { return formats.includes(type); } },
     indexedDB,
@@ -348,6 +348,7 @@ test('the existing attachment button accepts one video per device and shared tab
     await Promise.all(rows.slice(0, 2).map(row => row.attachmentQueue));
     assert.equal(rows[0].noteImages[0], reference);
     assert.equal(rows[1].noteImages.length, 0);
+    paste(rows[1], [{ type: 'video/mp4' }]);
     assert.match(app.context.document.querySelector('#status').textContent, /1本/);
     assert.equal(rows[0].querySelector('video').controls, true);
     assert.equal(rows[0].querySelector('.copy-button').disabled, false);
@@ -386,6 +387,66 @@ test('copied videos paste into another tab without text or extra video slots and
   empty.dispatchEvent({ type: 'paste', clipboardData: { getData: () => copied } });
   assert.equal(empty.noteImages.length, 0);
   assert.match(app.context.document.querySelector('#status').textContent, /1本/);
+});
+
+test('video selection immediately shows a temporary preview and spinner, reserves the slot, then releases its preview URL', async () => {
+  const { IDBFactory } = require('fake-indexeddb');
+  const app = boot({ indexedDB: new IDBFactory() }); await settled(app);
+  const row = app.row(), blob = new Blob(['original preview'], { type: 'video/mp4' });
+  const reference = app.context.CopyNotesVideos.prefix + crypto.randomUUID();
+  await app.context.CopyNotesVideos.put(reference, blob, { mime: blob.type, bytes: blob.size, duration: 30 });
+  let finish;
+  app.context.CopyNotesVideos = { ...app.context.CopyNotesVideos, prepare: () => new Promise(resolve => { finish = resolve; }) };
+  const revoked = [];
+  app.context.URL = class extends URL {
+    static createObjectURL() { return 'blob:preview-' + crypto.randomUUID(); }
+    static revokeObjectURL(url) { revoked.push(url); }
+  };
+  const picker = row.querySelector('.image-input'); picker.files = [blob]; picker.dispatchEvent({ type: 'change' });
+  assert.equal(row.classList.contains('has-attachment'), true);
+  assert.equal(row.querySelector('video').controls, false);
+  const previewUrl = row.querySelector('video').src;
+  assert.ok(previewUrl.startsWith('blob:preview-'));
+  assert.equal(row.querySelector('.video-upload-status').hidden, false);
+  assert.equal(row.querySelector('.video-spinner').hidden, false);
+  assert.equal(row.querySelector('.video-retry').hidden, true);
+  assert.equal(row.attributes['aria-busy'], 'true');
+  assert.equal(row.querySelector('.copy-button').disabled, true);
+  assert.equal(row.noteImages.length, 0, 'the provisional file never becomes a stored note reference');
+  app.add(); const other = app.list.children.at(-1);
+  paste(other, [blob]); assert.equal(other.noteImages.length, 0);
+  assert.match(app.context.document.querySelector('#status').textContent, /1本/);
+  await until(() => Boolean(finish)); finish(reference); await row.attachmentQueue;
+  assert.equal(row.noteImages[0], reference);
+  assert.equal(row.querySelector('video').controls, true);
+  assert.equal(row.querySelector('.video-upload-status').hidden, true);
+  assert.equal(row.attributes['aria-busy'], 'false');
+  assert.ok(revoked.includes(previewUrl));
+});
+
+test('failed video preparation keeps the temporary attachment and retries the same file without reopening the picker', async () => {
+  const { IDBFactory } = require('fake-indexeddb');
+  const app = boot({ indexedDB: new IDBFactory() }); await settled(app);
+  const blob = new Blob(['original retry'], { type: 'video/mp4' }), row = app.row();
+  const reference = app.context.CopyNotesVideos.prefix + crypto.randomUUID();
+  await app.context.CopyNotesVideos.put(reference, blob, { mime: blob.type, bytes: blob.size, duration: 30 });
+  let attempts = 0;
+  app.context.CopyNotesVideos = { ...app.context.CopyNotesVideos, prepare: async file => {
+    assert.equal(file, blob); if (++attempts === 1) throw new Error('端末への保存に失敗'); return reference;
+  } };
+  paste(row, [blob]); await row.attachmentQueue;
+  assert.equal(row.querySelector('.video-upload-status').hidden, false);
+  assert.equal(row.querySelector('.video-spinner').hidden, true);
+  assert.equal(row.querySelector('.video-retry').hidden, false);
+  assert.equal(row.querySelector('.video-retry').disabled, false);
+  assert.match(row.querySelector('.video-retry').title, /保存に失敗/);
+  assert.equal(row.attributes['aria-busy'], 'false');
+  assert.equal(row.querySelector('textarea').readOnly, true);
+  row.querySelector('.video-retry').click();
+  assert.equal(row.querySelector('.video-spinner').hidden, false);
+  await row.attachmentQueue;
+  assert.equal(attempts, 2); assert.equal(row.noteImages[0], reference);
+  assert.equal(row.querySelector('.video-upload-status').hidden, true);
 });
 
 test('settings replace notices, persist themes locally and never send a shared update', async () => {
@@ -707,9 +768,10 @@ async function authFixture(t, origin = 'http://127.0.0.1:5500', config) {
   db.batch(admin.prepare(db, admin.issue('G0123')));
   const sessionDisk = new Map();
   let offline = false;
-  const create = (options = {}) => boot({ origin, sessionDisk, config, ...options, apiFetch: (url, options) => {
+  const create = (options = {}) => boot({ origin, sessionDisk, config, ...options, apiFetch: async (url, requestOptions) => {
     if (offline) throw new TypeError('offline');
-    return handleApi(new Request(url, { ...options, headers: { ...options.headers, Origin: origin, 'Sec-Fetch-Site': 'cross-site' } }), { DB: db });
+    await options.beforeRequest?.(url, requestOptions);
+    return handleApi(new Request(url, { ...requestOptions, headers: { ...requestOptions.headers, Origin: origin, 'Sec-Fetch-Site': 'cross-site' } }), { DB: db });
   } });
   return { db, sessionDisk, create, setOffline: value => { offline = value; } };
 }
@@ -725,6 +787,44 @@ async function login(app, code = '00123') {
   document.querySelector('#loginForm').dispatchEvent({ type: 'submit' });
   await until(() => document.querySelector('#accountButton').textContent === 'ログイン中' && !document.querySelector('#accountButton').disabled);
 }
+
+test('shared and group video uploads show a spinner through note acknowledgement, retain failure across tabs and retry successfully', async t => {
+  const { IDBFactory } = require('fake-indexeddb');
+  for (const [code, tab, failingPath] of [['00123', 1, '/images'], ['G0123', 2, '/notes']]) {
+    const fixture = await authFixture(t);
+    let block = false, started = false, fail;
+    const gate = new Promise((resolve, reject) => { fail = reject; }); gate.catch(() => {});
+    const app = fixture.create({ indexedDB: new IDBFactory(), beforeRequest: async (url, options) => {
+      if (block && options.method === 'POST' && String(url).endsWith(failingPath)) { started = true; await gate; }
+    } });
+    await login(app, code); app.tab(tab); if (!app.row()) app.add();
+    const row = app.row(), blob = new Blob(['original shared video'], { type: 'video/mp4' });
+    const reference = app.context.CopyNotesVideos.prefix + crypto.randomUUID();
+    await app.context.CopyNotesVideos.put(reference, blob, { mime: blob.type, bytes: blob.size, duration: 30 });
+    app.context.CopyNotesVideos = { ...app.context.CopyNotesVideos, prepare: async () => reference };
+    paste(row, [blob]); await row.attachmentQueue;
+    assert.equal(row.querySelector('.video-spinner').hidden, false, 'spinner continues while waiting to synchronize');
+    block = true; const syncing = app.runAutoSync(); await until(() => started);
+    assert.equal(row.querySelector('.video-upload-status').hidden, false);
+    assert.equal(row.querySelector('.video-spinner').hidden, false);
+    assert.equal(row.attributes['aria-busy'], 'true');
+    app.tab(0);
+    fail(new TypeError('offline')); assert.equal(await syncing, false);
+    app.tab(tab); const failed = app.row();
+    assert.equal(failed.noteImages[0], reference);
+    assert.equal(failed.querySelector('.video-spinner').hidden, true);
+    assert.equal(failed.querySelector('.video-retry').hidden, false);
+    assert.equal(failed.querySelector('.video-retry').disabled, false);
+    block = false; failed.querySelector('.video-retry').click();
+    assert.equal(failed.querySelector('.video-spinner').hidden, false);
+    assert.equal(failed.querySelector('.video-retry').hidden, true);
+    assert.equal(await failed.videoRetry, true);
+    assert.equal(app.row().noteImages[0], reference);
+    assert.equal(app.row().querySelector('.video-upload-status').hidden, true);
+    assert.equal(app.row().attributes['aria-busy'], 'false');
+    assert.equal(fixture.db.prepare("SELECT COUNT(*) AS count FROM shared_notes WHERE images LIKE '%copynotes-video:%'").first().count, 1);
+  }
+});
 
 test('shared ordering travels between two app sessions, survives edits and retries after offline reload', async t => {
   const fixture = await authFixture(t);
