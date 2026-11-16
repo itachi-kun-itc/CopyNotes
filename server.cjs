@@ -21,6 +21,7 @@ const files = new Map([
   ["/links.js", ["links.js", "text/javascript; charset=utf-8"]],
   ["/note-limits.js", ["note-limits.js", "text/javascript; charset=utf-8"]],
   ["/note-images.js", ["note-images.js", "text/javascript; charset=utf-8"]],
+  ["/note-videos.js", ["note-videos.js", "text/javascript; charset=utf-8"]],
   ["/attachment-storage.js", ["attachment-storage.js", "text/javascript; charset=utf-8"]],
   ["/image-transfer.js", ["image-transfer.js", "text/javascript; charset=utf-8"]],
   ["/code-editor.js", ["code-editor.js", "text/javascript; charset=utf-8"]],

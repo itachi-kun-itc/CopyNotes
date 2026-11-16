@@ -16,6 +16,7 @@ globalThis.CopyNotesImages = (() => {
   };
   const valid = (images, limit = maxImages) => images === undefined || Array.isArray(images) && images.length <= limit
     && images.every(src => {
+      if (globalThis.CopyNotesVideos?.referenceId(src)) return true;
       if (typeof src !== 'string' || src.length > maxEncodedLength + 24 || !/^data:image\/(?:png|jpeg|webp);base64,/.test(src)) return false;
       const data = src.slice(src.indexOf(',') + 1);
       const bytes = data.length / 4 * 3 - (data.endsWith('==') ? 2 : data.endsWith('=') ? 1 : 0);
@@ -39,9 +40,10 @@ globalThis.CopyNotesImages = (() => {
       ? part.images.map((src, index) => ({ ...part, id: index ? part.id + '-photo-' + (index + 1) : part.id, images: [src] })) : [part]);
   }
   const filesFrom = data => {
-    const items = Array.from(data?.items || []).filter(item => item.kind === 'file' && item.type.startsWith('image/'));
+    const media = type => /^(image|video)\//.test(type);
+    const items = Array.from(data?.items || []).filter(item => item.kind === 'file' && media(item.type));
     return items.length ? items.map(item => item.getAsFile()).filter(Boolean)
-      : Array.from(data?.files || []).filter(file => file.type.startsWith('image/'));
+      : Array.from(data?.files || []).filter(file => media(file.type));
   };
   function read(file) {
     return new Promise((resolve, reject) => {

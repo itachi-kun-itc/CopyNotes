@@ -356,7 +356,7 @@
     }
     const kept = new Set(sharedNotes.filter(note => !note.deleted).map(note => note.id));
     for (const row of Array.from(list.children)) {
-      if (activeTab === 'device' ? sharing.isBlank(row.querySelector('textarea').value, row.noteImages) : !kept.has(row.dataset.noteId)) row.remove();
+      if (activeTab === 'device' ? sharing.isBlank(row.querySelector('textarea').value, row.noteImages) : !kept.has(row.dataset.noteId)) { releaseVideo(row); row.remove(); }
     }
     if (menuRow && !menuRow.isConnected) closeMenu();
     cancelPress();
@@ -447,9 +447,9 @@
         }
         if (list.children[index] !== row) list.insertBefore(row, list.children[index] || null);
       });
-      existing.forEach(row => { if (!row.classList.contains('is-removing')) row.remove(); });
+      existing.forEach(row => { if (!row.classList.contains('is-removing')) { releaseVideo(row); row.remove(); } });
     } else {
-      for (const row of list.children) row.getAnimations?.().forEach(animation => animation.cancel());
+      for (const row of list.children) { releaseVideo(row); row.getAnimations?.().forEach(animation => animation.cancel()); }
       list.replaceChildren();
       if (activeTab === 'device') noteOrder.apply(deviceNotes, orderWorkspace()).forEach(note => addNote(note.text, note));
       else if (authenticated) noteOrder.apply(sharedNotes.filter(note => !note.deleted), orderWorkspace()).forEach(note => addNote(note.text, note));
@@ -769,6 +769,7 @@
     const expectedTab = activeTab;
     const next = row.nextElementSibling || row.previousElementSibling;
     row.classList.add('is-removing');
+    releaseVideo(row);
     removingCount++;
     closeMenu();
     saveNotes();
@@ -881,15 +882,16 @@
     const media = Boolean(note.images.length);
     const moveFocus = media && document.activeElement === input;
     const button = row.querySelector('.copy-button');
-    const unsupported = media && !CopyNotesImages.canCopy();
+    const video = Boolean(CopyNotesVideos.referenceId(note.images[0]));
+    const unsupported = media && !(video ? CopyNotesVideos.canCopy() : CopyNotesImages.canCopy());
     button.disabled = !note.text.length && !media || unsupported;
     button.removeAttribute('data-copied');
-    button.title = unsupported ? 'この形式・ブラウザではコピーできません。下のDLボタンをご利用ください' : 'コピー';
+    button.title = unsupported ? 'この形式・ブラウザではコピーできません。下のDLボタンをご利用ください' : video ? '動画をコピー（CopyNotes内に貼り付け）' : 'コピー';
     button.setAttribute('aria-label', 'メモをコピー');
     const download = row.querySelector('.download-button');
     download.hidden = !media;
     download.disabled = !media;
-    download.setAttribute('aria-label', '画像をダウンロード');
+    download.setAttribute('aria-label', video ? '動画をダウンロード' : '画像をダウンロード');
     row.classList.toggle('has-attachment', media);
     // Keep subsequent pastes in this memo when its text editor disappears.
     if (moveFocus) (button.disabled ? download : button).focus({ preventScroll: true });
@@ -898,71 +900,96 @@
     input.placeholder = pending ? '読み込み中…' : 'テキストを入力…';
     const attachImage = row.querySelector('.attach-image');
     attachImage.hidden = note.text.length > 0 || media;
-    attachImage.disabled = pending || note.text.length > 0 || note.images.length >= CopyNotesImages.maxImages || imageNoteCount() >= CopyNotesImages.maxImageNotes;
+    attachImage.disabled = pending || note.text.length > 0 || media || imageNoteCount() >= CopyNotesImages.maxImageNotes && imageNoteCount(true) >= 1;
     row.querySelector('.image-count').textContent = `${row.noteImages.length}/${CopyNotesImages.maxImages}`;
   }
 
   function renderImages(row) {
     updateNoteState(row);
+    releaseVideo(row);
     const gallery = row.querySelector('.note-images');
     gallery.replaceChildren();
     gallery.hidden = row.noteImages.length === 0;
     row.noteImages.forEach((src, index) => {
       const item = document.createElement('div'); item.className = 'note-image';
+      if (CopyNotesVideos.referenceId(src)) {
+        const video = document.createElement('video');
+        video.controls = true; video.playsInline = true; video.preload = 'metadata';
+        video.setAttribute('aria-label', '添付動画');
+        item.append(video); gallery.append(item);
+        CopyNotesVideos.get(src).then(record => {
+          if (!record) throw new Error('動画が見つかりません。共有先を再読み込みしてください');
+          if (!video.isConnected || row.noteImages[0] !== src) return;
+          row.videoUrl = URL.createObjectURL(record.blob); video.src = row.videoUrl;
+        }).catch(error => { if (video.isConnected) announce(error.message || '動画を読み込めませんでした'); });
+        return;
+      }
       const image = document.createElement('img');
       image.src = src; image.alt = `添付画像 ${index + 1}`; image.draggable = false;
       item.append(image); gallery.append(item);
     });
   }
 
-  function imageNoteCount() {
+  function releaseVideo(row) {
+    const video = row.querySelector('video');
+    if (video) { video.pause(); video.removeAttribute('src'); video.load(); }
+    if (row.videoUrl) { URL.revokeObjectURL(row.videoUrl); row.videoUrl = null; }
+  }
+
+  function imageNoteCount(videos = false) {
     const ids = new Set();
+    const matches = sources => sources?.length && Boolean(CopyNotesVideos.referenceId(sources[0])) === videos;
     if (activeTab === 'device') {
       // Read the small metadata directly, including changes from another tab.
       try {
         const saved = JSON.parse(localStorage.getItem(CopyNotesDeviceStorage.key) || '[]');
-        for (const note of saved) if (note.images?.length) ids.add(note.id);
+        for (const note of saved) if (matches(note.images)) ids.add(note.id);
       } catch { /* The normal persistence path reports storage failures. */ }
     }
     for (const note of activeTab === 'device' ? deviceNotes : sharedNotes) {
-      if (!note.deleted && note.images?.length) ids.add(note.id);
+      if (!note.deleted && matches(note.images)) ids.add(note.id);
     }
-    for (const row of list.children) if (!row.classList.contains('is-removing') && row.noteImages?.length) ids.add(row.dataset.noteId);
+    for (const row of list.children) if (!row.classList.contains('is-removing') && matches(row.noteImages)) ids.add(row.dataset.noteId);
     return ids.size;
   }
 
   function updateImageButtons() {
     const reached = imageNoteCount() >= CopyNotesImages.maxImageNotes;
+    const videoReached = imageNoteCount(true) >= 1;
     for (const row of list.children) {
       const button = row.querySelector('.attach-image');
-      button.disabled = reached || Boolean(row.pendingAttachments) || row.noteImages.length > 0 || row.querySelector('textarea').value.length > 0;
-      button.title = reached ? '画像は保存先ごとに3枚までです' : '画像を追加（1枚20MiBまで）';
+      button.disabled = reached && videoReached || Boolean(row.pendingAttachments) || row.noteImages.length > 0 || row.querySelector('textarea').value.length > 0;
+      button.title = reached && videoReached ? '画像3枚・動画1本の上限に達しています' : '画像・動画を追加（画像20MiB、動画30秒・300MBまで）';
+      row.querySelector('.image-input').accept = reached ? 'video/*' : videoReached ? 'image/*' : 'image/*,video/*';
     }
   }
 
   function attachImages(row, files) {
     if (!files.length) return;
-    if (files.some(file => !file.type.startsWith('image/'))) { announce('画像のみ添付できます'); return; }
-    const blocked = () => rowContent(row).text.length > 0 || row.noteImages.length >= CopyNotesImages.maxImages || imageNoteCount() >= CopyNotesImages.maxImageNotes;
-    const explain = () => announce(row.noteImages.length >= CopyNotesImages.maxImages ? '画像は1つのメモに1枚までです'
-      : rowContent(row).text.length ? '文字と画像は別々のメモにしてください' : (activeTab === 'device' ? '端末' : activeTab === 'group' ? 'グループ' : '共有') + 'の画像は3枚（3メモ分）までです');
-    if (blocked()) { explain(); return; }
-    const tab = activeTab;
+    if (files.some(file => !/^(image|video)\//.test(file.type))) { announce('画像・動画のみ添付できます'); return; }
+    const isVideo = file => file.type.startsWith('video/');
+    const blocked = file => rowContent(row).text.length > 0 || row.noteImages.length >= CopyNotesImages.maxImages || (isVideo(file) ? imageNoteCount(true) >= 1 : imageNoteCount() >= CopyNotesImages.maxImageNotes);
+    const explain = file => announce(row.noteImages.length >= CopyNotesImages.maxImages ? '画像・動画は1つのメモに1つまでです'
+      : rowContent(row).text.length ? '文字と画像・動画は別々のメモにしてください' : isVideo(file) ? '動画は保存先ごとに1本までです' : (activeTab === 'device' ? '端末' : activeTab === 'group' ? 'グループ' : '共有') + 'の画像は3枚（3メモ分）までです');
+    if (blocked(files[0])) { explain(files[0]); return; }
+    const tab = activeTab, attachmentRoom = roomId;
     preparingImages++;
     row.pendingAttachments = (row.pendingAttachments || 0) + 1; updateNoteState(row);
     row.attachmentQueue = (row.attachmentQueue || Promise.resolve()).then(async () => {
       let added = 0;
       for (const file of files) {
-        if (!row.isConnected || activeTab !== tab || row.classList.contains('is-removing')) break;
-        if (blocked()) { explain(); break; }
+        if (!row.isConnected || activeTab !== tab || roomId !== attachmentRoom || row.classList.contains('is-removing')) break;
+        if (blocked(file)) { explain(file); break; }
         try {
-          const prepared = await CopyNotesImages.prepare(file);
-          if (attachmentStorage) await attachmentStorage.put(prepared);
-          else if (CopyNotesImages.byteLength(prepared) > CopyNotesImages.inlineBytes) throw new Error('大きな画像の保存にはIndexedDBが使えるブラウザが必要です');
+          const video = isVideo(file);
+          if (file.reference && !await CopyNotesVideos.get(file.reference)) throw new Error('コピー元の動画が見つかりません。同じサイトのCopyNotes内に貼り付けてください');
+          const prepared = video ? file.reference || await CopyNotesVideos.prepare(file) : await CopyNotesImages.prepare(file);
+          if (!video && attachmentStorage) await attachmentStorage.put(prepared);
+          else if (!video && CopyNotesImages.byteLength(prepared) > CopyNotesImages.inlineBytes) throw new Error('大きな画像の保存にはIndexedDBが使えるブラウザが必要です');
           const commit = async () => {
             await attachmentStorage?.refresh();
-            if (!row.isConnected || activeTab !== tab || row.classList.contains('is-removing')) return;
-            if (blocked()) { explain(); return; }
+            if (!row.isConnected || activeTab !== tab || roomId !== attachmentRoom || row.classList.contains('is-removing')) return;
+            if (blocked(file)) { explain(file); return; }
             row.noteImages.push(prepared);
             renderImages(row); saveNotes(); autoSync.changed(); added++;
           };
@@ -970,7 +997,7 @@
           else await commit();
         } catch (error) { announce(error.message || '添付内容を読み込めませんでした'); }
       }
-      if (added && files.length === added) announce('画像を追加しました');
+      if (added && files.length === added) announce(isVideo(files[0]) ? '動画を追加しました' : '画像を追加しました');
     }).finally(() => { row.pendingAttachments--; updateNoteState(row); preparingImages--; releaseIdle(); autoSync.changed(); });
   }
 
@@ -992,6 +1019,11 @@
     renderImages(row);
     // Capture before textarea paste handlers so image pastes never replace text.
     row.addEventListener('paste', event => {
+      const reference = CopyNotesVideos.fromClipboard(event.clipboardData);
+      if (reference) {
+        event.preventDefault(); event.stopImmediatePropagation();
+        attachImages(row, [{ type: 'video/copynotes', reference }]); return;
+      }
       const files = CopyNotesImages.filesFrom(event.clipboardData);
       if (!files.length && !input.readOnly) return;
       event.preventDefault(); event.stopImmediatePropagation();
@@ -1035,7 +1067,8 @@
       const images = [...row.noteImages];
       if (!images.length) return;
       try {
-        await CopyNotesImages.download(images);
+        if (CopyNotesVideos.referenceId(images[0])) await CopyNotesVideos.download(images[0]);
+        else await CopyNotesImages.download(images);
         announce('ダウンロードを開始しました');
       } catch { announce('ダウンロードできませんでした'); }
     });
@@ -1045,7 +1078,8 @@
       if (button.disabled || !text && !images.length) return;
       try {
         if (images.length) {
-          await CopyNotesImages.copy(text, images);
+          if (CopyNotesVideos.referenceId(images[0])) await CopyNotesVideos.copy(images[0]);
+          else await CopyNotesImages.copy(text, images);
         } else if (navigator.clipboard?.writeText) {
           try { await navigator.clipboard.writeText(text); }
           catch { fallbackCopy(input, text); }
@@ -1057,10 +1091,10 @@
           button.setAttribute("data-copied", "");
           copiedTimer = setTimeout(() => button.removeAttribute("data-copied"), 1800);
         }
-        announce("コピーしました");
+        announce(CopyNotesVideos.referenceId(images[0]) ? '動画をコピーしました（同じサイトのCopyNotes内に貼り付けできます）' : 'コピーしました');
       } catch (error) {
         if (images.length) {
-          announce(error.message === 'このブラウザは画像のコピーに対応していません' ? error.message : '画像をコピーできませんでした');
+          announce(CopyNotesVideos.referenceId(images[0]) ? error.message || '動画をコピーできませんでした' : error.message === 'このブラウザは画像のコピーに対応していません' ? error.message : '画像をコピーできませんでした');
         } else {
           input.focus();
           input.select();

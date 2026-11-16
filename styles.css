@@ -353,7 +353,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .note-content { flex: 1; min-width: 0; }
 .note-images { display: grid; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); gap: 8px; margin: 8px 0; }
 .note-image { min-width: 0; overflow: hidden; border: 1px solid var(--border); border-radius: 8px; background: var(--page); }
-.note-image img { display: block; width: 100%; height: 148px; object-fit: contain; }
+.note-image img, .note-image video { display: block; width: 100%; height: 148px; object-fit: contain; }
 .image-tools {
   display: grid; grid-template-columns: 36px;
   align-items: center; justify-content: start; gap: 8px; color: var(--subtle);
@@ -400,7 +400,7 @@ button { -webkit-tap-highlight-color: transparent; }
 .is-code .reorder-handle:hover, .is-code .reorder-handle:focus-visible { background: #569cd6; }
 .note-row:not(.has-attachment) .note-actions { align-self: flex-start; }
 .is-code .image-tools { color: #a5a5a5; }
-@media (max-width: 480px) { .note-image img { height: 120px; } }
+@media (max-width: 480px) { .note-image img, .note-image video { height: 120px; } }
 .note-highlight {
   display: none; position: absolute; inset: 0; margin: 0; padding: 8px 0;
   overflow: hidden; pointer-events: none;

@@ -47,6 +47,8 @@ class Element {
   contains(node) { return node === this || this.children.some(child => child.contains(node)); }
   setAttribute(name, value) { this.attributes[name] = value; }
   removeAttribute(name) { delete this.attributes[name]; }
+  pause() {}
+  load() {}
   getClientRects() { return []; }
   getAnimations() { return []; }
   show() { this.open = true; (this.attributes.autofocus !== undefined ? this : this.querySelector('button') || this).focus(); }
@@ -82,7 +84,7 @@ function boot({ clipboard = true, formats = ['image/png', 'text/plain'], indexed
   const disk = savedDisk || new Map(), downloads = [], copiedImages = [], requests = [], frames = [];
   let selectTab, runAutoSync;
   const context = vm.createContext({ document, window: new Element('window'), crypto, URL, Blob, atob, Uint8Array, TextEncoder,
-    navigator: { onLine: true, clipboard: clipboard ? { write: async () => {} } : undefined }, location: { origin },
+    navigator: { onLine: true, clipboard: clipboard ? { write: async () => {}, writeText: async () => {} } : undefined }, location: { origin },
     ClipboardItem: class { constructor(data) { this.data = data; } static supports(type) { return formats.includes(type); } },
     indexedDB,
     localStorage: { get length() { return disk.size; }, key: index => [...disk.keys()][index], getItem: key => disk.get(key) ?? null, setItem: (key, value) => disk.set(key, value) },
@@ -102,7 +104,7 @@ function boot({ clipboard = true, formats = ['image/png', 'text/plain'], indexed
     CopyNotesLinks: { find: () => [], render: () => document.createElement('span') },
     CopyNotesLimits: { attach() {} }, CopyNotesEditor: { attach(input, options) { input.editorOptions = options; } },
   });
-  for (const file of ['app-config.js', 'theme.js', 'note-images.js', 'attachment-storage.js', 'image-transfer.js', 'sharing.js', 'device-storage.js', 'reorder-notes.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'), context);
+  for (const file of ['app-config.js', 'theme.js', 'note-images.js', 'note-videos.js', 'attachment-storage.js', 'image-transfer.js', 'sharing.js', 'device-storage.js', 'reorder-notes.js']) vm.runInContext(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'), context);
   if (config) context.CopyNotesConfig = config;
   context.CopyNotesImages = { ...context.CopyNotesImages, prepare: async file => file.src, copy: async (text, sources) => copiedImages.push([...sources]), download: async sources => downloads.push([...sources]) };
   const ready = vm.runInContext(fs.readFileSync(path.join(__dirname, '../app.js'), 'utf8'), context);
@@ -304,7 +306,8 @@ test('device and shared tabs each accept three image memos and reject a fourth, 
     await Promise.all(rows.map(row => row.attachmentQueue));
     assert.equal(app.list.children.filter(row => row.noteImages.length).length, 3);
     assert.equal(rows[3].noteImages.length, 0);
-    assert.equal(rows[3].querySelector('.attach-image').disabled, true);
+    assert.equal(rows[3].querySelector('.attach-image').disabled, false, 'the same button can still attach a video');
+    assert.equal(rows[3].querySelector('.image-input').accept, 'video/*');
     paste(rows[3], [photo]);
     assert.match(app.context.document.querySelector('#status').textContent, /3枚/);
     // Deleting one image memo releases a slot for the empty memo.
@@ -327,6 +330,62 @@ test('a full-size attachment is durable before it appears and reloads with the s
   assert.ok(app.disk.get(app.context.CopyNotesDeviceStorage.key).length < 300);
   const reloaded = boot({ indexedDB, savedDisk: app.disk }); await reloaded.ready;
   assert.equal(reloaded.row().noteImages[0], src);
+});
+
+test('the existing attachment button accepts one video per device and shared tab alongside three images, including overlapping attachments', async () => {
+  const { IDBFactory } = require('fake-indexeddb');
+  const indexedDB = new IDBFactory(), app = boot({ indexedDB, authenticated: true });
+  await settled(app);
+  const reference = app.context.CopyNotesVideos.prefix + crypto.randomUUID();
+  const blob = new Blob(['original video'], { type: 'video/mp4' });
+  await app.context.CopyNotesVideos.put(reference, blob, { mime: blob.type, bytes: blob.size, duration: 30 });
+  app.context.CopyNotesVideos = { ...app.context.CopyNotesVideos, prepare: async () => reference };
+  for (const tab of [0, 1]) {
+    app.tab(tab);
+    while (app.list.children.length < 5) app.add();
+    const rows = [...app.list.children];
+    for (const row of rows.slice(0, 2)) paste(row, [{ type: 'video/mp4' }]);
+    await Promise.all(rows.slice(0, 2).map(row => row.attachmentQueue));
+    assert.equal(rows[0].noteImages[0], reference);
+    assert.equal(rows[1].noteImages.length, 0);
+    assert.match(app.context.document.querySelector('#status').textContent, /1本/);
+    assert.equal(rows[0].querySelector('video').controls, true);
+    assert.equal(rows[0].querySelector('.copy-button').disabled, false);
+    assert.equal(rows[0].querySelector('.download-button').hidden, false);
+    for (const row of rows.slice(1, 4)) paste(row, [photo]);
+    await Promise.all(rows.slice(1, 4).map(row => row.attachmentQueue));
+    assert.equal(rows.filter(row => row.noteImages[0] === photo.src).length, 3);
+    assert.equal(rows[4].querySelector('.attach-image').disabled, true);
+    rows[0].remove(); rows[4].querySelector('textarea').dispatchEvent({ type: 'input' });
+    assert.equal(rows[4].querySelector('.image-input').accept, 'video/*');
+    paste(rows[4], [{ type: 'video/mp4' }]); await rows[4].attachmentQueue;
+    assert.equal(rows[4].noteImages[0], reference);
+  }
+});
+
+test('copied videos paste into another tab without text or extra video slots and survive reload', async () => {
+  const { IDBFactory } = require('fake-indexeddb');
+  const indexedDB = new IDBFactory(), app = boot({ indexedDB, authenticated: true }); await settled(app);
+  const reference = app.context.CopyNotesVideos.prefix + crypto.randomUUID(), blob = new Blob(['original'], { type: 'video/mp4' });
+  await app.context.CopyNotesVideos.put(reference, blob, { mime: blob.type, bytes: blob.size, duration: 30 });
+  let copied;
+  app.context.navigator.clipboard.writeText = async value => { copied = value; };
+  app.context.CopyNotesVideos = { ...app.context.CopyNotesVideos, prepare: async () => reference };
+  if (!app.row()) app.add();
+  paste(app.row(), [{ type: 'video/mp4' }]); await app.row().attachmentQueue;
+  app.row().querySelector('.copy-button').click(); await new Promise(setImmediate);
+  assert.match(copied, /CopyNotes動画:/);
+  const reloaded = boot({ indexedDB, savedDisk: app.disk }); await settled(reloaded);
+  assert.equal(reloaded.row().noteImages[0], reference);
+  app.tab(1); app.add();
+  const row = app.row();
+  row.dispatchEvent({ type: 'paste', clipboardData: { getData: () => copied } });
+  await row.attachmentQueue;
+  assert.equal(row.noteImages[0], reference); assert.equal(row.querySelector('textarea').value, '');
+  app.add(); const empty = app.list.children.at(-1);
+  empty.dispatchEvent({ type: 'paste', clipboardData: { getData: () => copied } });
+  assert.equal(empty.noteImages.length, 0);
+  assert.match(app.context.document.querySelector('#status').textContent, /1本/);
 });
 
 test('settings replace notices, persist themes locally and never send a shared update', async () => {

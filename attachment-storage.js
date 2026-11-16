@@ -33,6 +33,7 @@ globalThis.CopyNotesAttachmentStorage = (() => {
       records.forEach(remember);
     }
     async function put(src) {
+      if (globalThis.CopyNotesVideos?.referenceId(src)) return;
       if (bySource.has(src) && created.get(bySource.get(src)) >= Date.now() - 86400000) return;
       const record = { id: crypto.randomUUID(), src, createdAt: Date.now() };
       await new Promise((resolve, reject) => {

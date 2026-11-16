@@ -1,13 +1,15 @@
 "use strict";
 
-if (typeof require === 'function') require('./note-images.js');
+if (typeof require === 'function') { require('./note-images.js'); require('./note-videos.js'); }
 
 globalThis.CopyNotesImageTransfer = (() => {
   const images = globalThis.CopyNotesImages;
   function create(request) {
+    const videos = CopyNotesVideos.createTransfer(request);
     // Room-scoped caches never authorize access; every request checks the session.
     const uploaded = new Map(), downloaded = new Map(), partial = new Map();
     async function upload(src, room) {
+      if (CopyNotesVideos.referenceId(src)) return videos.upload(src, room);
       if (!images.valid([src])) throw new Error('画像を確認してください');
       const key = room + ':' + src;
       if (uploaded.has(key)) {
@@ -33,6 +35,7 @@ globalThis.CopyNotesImageTransfer = (() => {
       return reference;
     }
     async function download(reference, room) {
+      if (CopyNotesVideos.referenceId(reference)) return videos.download(reference, room);
       const id = images.referenceId(reference);
       if (!id) {
         if (!images.valid([reference])) throw new Error('共有画像の形式を確認してください');
